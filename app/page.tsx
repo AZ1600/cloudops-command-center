@@ -1,9 +1,10 @@
-import { mockSignals } from "@/data/mock-signals";
 import { CloudOpsDashboard } from "@/app/cloudops-dashboard";
-import { analyzeSignals } from "@/lib/risk-engine";
+import { getCurrentMember } from "@/lib/auth";
+import { getPlatformState } from "@/lib/repository";
 
-export default function Home() {
-  const risks = analyzeSignals(mockSignals);
+export default async function Home() {
+  const member = await getCurrentMember();
+  const platformState = await getPlatformState(member);
 
-  return <CloudOpsDashboard initialRisks={risks} />;
+  return <CloudOpsDashboard initialState={platformState} />;
 }

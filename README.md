@@ -185,10 +185,37 @@ http://localhost:3000
 
 ---
 
+## Production Foundation
+
+The app now includes the first production-readiness layer:
+
+- Optional Clerk auth provider with demo fallback
+- Workspace and team role model
+- Owner/Admin approval permissions
+- Neon Postgres-ready schema
+- Repository layer with Postgres when `DATABASE_URL` is configured
+- Demo in-memory fallback when no database is configured
+- API routes for platform state, risk scans, and approval actions
+
+Environment variables for production mode:
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+DATABASE_URL=
+DATABASE_SSL=true
+```
+
+Apply the Neon schema after setting `DATABASE_URL`:
+
+```bash
+npm run db:apply
+```
+
+---
+
 ## Future Improvements
 
-- Add Clerk authentication and team roles
-- Add Neon Postgres persistence
 - Connect live GitHub Actions API
 - Add AWS read-only integration
 - Import Terraform plan JSON

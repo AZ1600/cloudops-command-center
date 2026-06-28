@@ -96,7 +96,18 @@ p {
 
 h1 {
   font-size: 1.35rem;
-  margin-bottom: 34px;
+  margin-bottom: 10px;
+}
+
+.role-chip {
+  background: var(--teal-soft);
+  color: var(--teal);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  margin-bottom: 26px;
+  padding: 7px 9px;
+  text-transform: capitalize;
 }
 
 nav {

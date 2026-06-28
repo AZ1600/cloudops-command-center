@@ -1,5 +1,21 @@
 export type SignalSource = "github" | "aws" | "kubernetes" | "terraform" | "monitoring";
 
+export type UserRole = "owner" | "admin" | "engineer" | "viewer";
+
+export type Workspace = {
+  id: string;
+  name: string;
+  plan: "demo" | "starter" | "team" | "enterprise";
+};
+
+export type WorkspaceMember = {
+  id: string;
+  workspaceId: string;
+  email: string;
+  name: string;
+  role: UserRole;
+};
+
 export type RiskCategory = "reliability" | "security" | "cost" | "deployment";
 
 export type RiskSeverity = "critical" | "high" | "medium" | "low";
@@ -99,4 +115,12 @@ export type ServiceCatalogItem = {
   health: ServiceHealth;
   lastChange: string;
   integrations: SignalSource[];
+};
+
+export type PlatformState = {
+  workspace: Workspace;
+  currentMember: WorkspaceMember;
+  risks: InfrastructureRisk[];
+  auditEvents: AuditEvent[];
+  executionEvents: ExecutionEvent[];
 };

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:apply": "node scripts/apply-schema.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.9",

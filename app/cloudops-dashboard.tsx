@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import { integrations } from "@/data/integrations";
 import { runbooks } from "@/data/runbooks";
 import { serviceCatalog } from "@/data/service-catalog";
+import { canApprove, canExecute } from "@/lib/permissions";
 import { summarizeRisks } from "@/lib/risk-engine";
-import type { AuditEvent, ExecutionEvent, InfrastructureRisk, IntegrationStatus, RiskStatus, ServiceHealth, SignalSource } from "@/lib/types";
+import type { InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource } from "@/lib/types";
 
 const sourceLabel = {
   github: "GitHub",
@@ -49,7 +50,7 @@ function getSignalConfidence(risk: InfrastructureRisk) {
 }
 
 type CloudOpsDashboardProps = {
-  initialRisks: InfrastructureRisk[];
+  initialState: PlatformState;
 };
 
 type OwnerSummary = {
@@ -62,23 +63,15 @@ type OwnerSummary = {
   services: string[];
 };
 
-export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
-  const [risks, setRisks] = useState(initialRisks);
+export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
+  const [platformState, setPlatformState] = useState(initialState);
   const [scanRunCount, setScanRunCount] = useState(1);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([
-    {
-      id: "audit-scan-001",
-      riskId: "scan",
-      riskTitle: "Initial infrastructure scan",
-      action: "scan",
-      actor: "CloudOps AI",
-      detail: `${initialRisks.length} infrastructure risks detected and routed to owners.`,
-      createdAt: "Just now",
-    },
-  ]);
-  const [executionEvents, setExecutionEvents] = useState<ExecutionEvent[]>([]);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
+  const { auditEvents, currentMember, executionEvents, risks, workspace } = platformState;
   const summary = useMemo(() => summarizeRisks(risks), [risks]);
+  const memberCanApprove = canApprove(currentMember.role);
+  const memberCanExecute = canExecute(currentMember.role);
   const visibleRisks = risks.filter((risk) => risk.status !== "dismissed");
   const approvedRisks = risks.filter((risk) => risk.status === "approved" || risk.status === "executed");
   const activeServices = new Set(visibleRisks.map((risk) => risk.service));
@@ -124,81 +117,53 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
     return Array.from(summaries.values()).sort((a, b) => b.urgent - a.urgent || b.total - a.total);
   }, [risks]);
 
-  function recordEvent(risk: InfrastructureRisk, action: AuditEvent["action"], detail: string) {
-    setAuditEvents((current) => [
-      {
-        id: `audit-${risk.id}-${action}-${current.length + 1}`,
-        riskId: risk.id,
-        riskTitle: risk.title,
-        action,
-        actor: "Platform Owner",
-        detail,
-        createdAt: "Just now",
-      },
-      ...current,
-    ]);
-  }
+  async function updateRiskStatus(risk: InfrastructureRisk, status: RiskStatus) {
+    setPendingAction(`${risk.id}-${status}`);
 
-  function updateRiskStatus(riskId: string, status: RiskStatus) {
-    setRisks((current) => current.map((risk) => (risk.id === riskId ? { ...risk, status } : risk)));
-  }
+    try {
+      const response = await fetch(`/api/risks/${risk.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
 
-  function approveRisk(risk: InfrastructureRisk) {
-    updateRiskStatus(risk.id, "approved");
-    recordEvent(
-      risk,
-      "approved",
-      `${risk.recommendation.executionMode.replace("_", " ")} remediation approved for ${risk.routedTo}. Execution is queued behind the safety gate.`,
-    );
+      if (!response.ok) {
+        throw new Error("Unable to update risk");
+      }
+
+      setPlatformState((await response.json()) as PlatformState);
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   function dismissRisk(risk: InfrastructureRisk) {
-    updateRiskStatus(risk.id, "dismissed");
-    recordEvent(risk, "dismissed", `Risk dismissed after review. No execution will be triggered for ${risk.service}.`);
+    void updateRiskStatus(risk, "dismissed");
+  }
+
+  function approveRisk(risk: InfrastructureRisk) {
+    void updateRiskStatus(risk, "approved");
   }
 
   function executeRisk(risk: InfrastructureRisk) {
-    updateRiskStatus(risk.id, "executed");
-    setExecutionEvents((current) => [
-      {
-        id: `execution-${risk.id}-${current.length + 1}`,
-        riskId: risk.id,
-        title: risk.title,
-        owner: risk.routedTo,
-        mode: risk.recommendation.executionMode,
-        commandPreview: risk.recommendation.commandPreview,
-        steps: [
-          "Approval token verified",
-          "Safety checks passed",
-          "Command preview recorded",
-          "Simulated remediation completed",
-        ],
-        createdAt: "Just now",
-      },
-      ...current,
-    ]);
-    recordEvent(
-      risk,
-      "executed",
-      `${risk.recommendation.executionMode.replace("_", " ")} remediation executed in simulation mode with audit evidence captured.`,
-    );
+    void updateRiskStatus(risk, "executed");
   }
 
-  function resetScan() {
-    setRisks(initialRisks);
-    setExecutionEvents([]);
-    setScanRunCount((current) => current + 1);
-    setAuditEvents([
-      {
-        id: "audit-scan-reset",
-        riskId: "scan",
-        riskTitle: "Risk scan reset",
-        action: "scan",
-        actor: "CloudOps AI",
-        detail: `${initialRisks.length} infrastructure risks restored for demo review.`,
-        createdAt: "Just now",
-      },
-    ]);
+  async function resetScan() {
+    setPendingAction("scan");
+
+    try {
+      const response = await fetch("/api/risk-scan", { method: "POST" });
+
+      if (!response.ok) {
+        throw new Error("Unable to run risk scan");
+      }
+
+      setPlatformState((await response.json()) as PlatformState);
+      setScanRunCount((current) => current + 1);
+    } finally {
+      setPendingAction(null);
+    }
   }
 
   return (
@@ -208,6 +173,7 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
         <div>
           <p className="eyebrow">CloudOps</p>
           <h1>Command Center</h1>
+          <span className="role-chip">{currentMember.role}</span>
         </div>
         <nav>
           {["Risk Inbox", "Approvals", "Owners", "Integrations", "Runbooks", "Audit Log"].map((item, index) => (
@@ -237,7 +203,9 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
             </p>
           </div>
           <div className="hero-actions">
-            <button onClick={resetScan}>Run risk scan</button>
+            <button disabled={pendingAction === "scan"} onClick={resetScan}>
+              {pendingAction === "scan" ? "Scanning" : "Run risk scan"}
+            </button>
             <button className="secondary">Export audit</button>
           </div>
         </header>
@@ -246,7 +214,7 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
           <div>
             <strong>Scan complete</strong>
             <span>
-              Run #{scanRunCount} found {initialRisks.length} infrastructure risks across {Object.keys(signalsBySource).length} signal sources.
+              Run #{scanRunCount} found {risks.length} infrastructure risks across {Object.keys(signalsBySource).length} signal sources for {workspace.name}.
             </span>
           </div>
           <span>{summary.needsApproval} waiting for approval</span>
@@ -323,11 +291,15 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
                   <div className="risk-footer">
                     <code>{risk.recommendation.commandPreview}</code>
                     <div>
-                      <button className="secondary" disabled={risk.status !== "needs_approval"} onClick={() => dismissRisk(risk)}>
-                        Dismiss
+                      <button
+                        className="secondary"
+                        disabled={risk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${risk.id}-dismissed`}
+                        onClick={() => dismissRisk(risk)}
+                      >
+                        {pendingAction === `${risk.id}-dismissed` ? "Dismissing" : "Dismiss"}
                       </button>
-                      <button disabled={risk.status !== "needs_approval"} onClick={() => approveRisk(risk)}>
-                        {risk.status === "approved" ? "Approved" : "Approve"}
+                      <button disabled={risk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${risk.id}-approved`} onClick={() => approveRisk(risk)}>
+                        {pendingAction === `${risk.id}-approved` ? "Approving" : risk.status === "approved" ? "Approved" : "Approve"}
                       </button>
                     </div>
                   </div>
@@ -382,8 +354,8 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
                       <strong>{risk.title}</strong>
                       <span>{risk.routedTo}</span>
                       <code>{risk.recommendation.executionMode.replace("_", " ")}</code>
-                      <button disabled={risk.status === "executed"} onClick={() => executeRisk(risk)}>
-                        {risk.status === "executed" ? "Executed" : "Execute remediation"}
+                      <button disabled={risk.status === "executed" || !memberCanExecute || pendingAction === `${risk.id}-executed`} onClick={() => executeRisk(risk)}>
+                        {pendingAction === `${risk.id}-executed` ? "Executing" : risk.status === "executed" ? "Executed" : "Execute remediation"}
                       </button>
                     </article>
                   ))
