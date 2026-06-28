@@ -106,13 +106,15 @@ Audit Log
 
 ## Demo Risk Sources
 
-The current MVP uses mock signals for:
+The current MVP uses mock and live-ingested signals for:
 
 - Failed GitHub Actions deployment
+- Live GitHub Actions workflow run failures
 - Public S3 bucket access risk
 - Kubernetes CrashLoopBackOff
 - Unattached AWS volumes increasing cost
 - Terraform drift in a security group
+- Terraform plan JSON security, cost, and change risks
 
 ---
 
@@ -122,9 +124,10 @@ CloudOps Command Center is currently implemented as a frontend-first platform en
 
 - Next.js app renders the command center UI
 - TypeScript models infrastructure signals, risks, services, integrations, runbooks, execution events, and audit events
-- Mock data simulates real integrations
+- Mock data simulates cloud integrations while live GitHub Actions and Terraform import flows demonstrate production-style ingestion
 - Risk engine transforms signals into explainable risks
 - React state manages approval, dismissal, execution, metrics, owner routing, and audit history
+- API routes persist platform state, import GitHub Actions failures, and classify Terraform plan JSON
 - Vitest validates risk logic and data relationships
 - GitHub Actions workflow validates lint, typecheck, tests, and build
 
@@ -160,6 +163,8 @@ Current validation coverage checks:
 - Runbook coverage
 - Integration catalog coverage
 - Service catalog coverage
+- Terraform plan risk import
+- GitHub Actions failure import
 
 ---
 
@@ -247,6 +252,10 @@ npm run db:apply
 ### Approval + Execution Flow
 
 ![Approval Execution Flow](docs/screenshots/approval-execution-flow.png)
+
+### GitHub Actions Risk Import
+
+![GitHub Actions Risk Import](docs/screenshots/github-actions-risk-import.png)
 
 ### Owner Routing
 
