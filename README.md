@@ -202,7 +202,11 @@ http://localhost:3000
 
 ## Screenshots
 
-### Dashboard / Risk Inbox
+### Dashboard / Risk Scan Complete
+
+![Dashboard Risk Scan Complete](docs/screenshots/dashboard-risk-scan-complete.png)
+
+### Risk Inbox
 
 ![Dashboard Risk Inbox](docs/screenshots/dashboard-risk-inbox.png)
 
