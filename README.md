@@ -196,6 +196,7 @@ The app now includes the first production-readiness layer:
 - Repository layer with Postgres when `DATABASE_URL` is configured
 - Demo in-memory fallback when no database is configured
 - API routes for platform state, risk scans, and approval actions
+- Terraform plan JSON import with infrastructure risk detection
 
 Environment variables for production mode:
 
@@ -218,7 +219,6 @@ npm run db:apply
 
 - Connect live GitHub Actions API
 - Add AWS read-only integration
-- Import Terraform plan JSON
 - Add Kubernetes read-only cluster integration
 - Add Prometheus or Alertmanager webhook ingestion
 - Add pull request generation for approved remediations

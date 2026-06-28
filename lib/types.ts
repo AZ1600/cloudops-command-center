@@ -124,3 +124,9 @@ export type PlatformState = {
   auditEvents: AuditEvent[];
   executionEvents: ExecutionEvent[];
 };
+
+export type TerraformPlanSummary = {
+  totalChanges: number;
+  riskyChanges: number;
+  generatedRisks: number;
+};

@@ -581,6 +581,7 @@ nav span {
 
 .services-panel,
 .integrations-panel,
+.terraform-panel,
 .runbooks-panel {
   margin-bottom: 34px;
 }
@@ -693,6 +694,75 @@ nav span {
   padding: 10px;
 }
 
+.terraform-import {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.terraform-import textarea {
+  background: #10141c;
+  border: 1px solid var(--line);
+  color: #d9e4ee;
+  font: 0.9rem/1.5 monospace;
+  min-height: 340px;
+  padding: 14px;
+  resize: vertical;
+  width: 100%;
+}
+
+.terraform-import aside {
+  border: 1px solid var(--line);
+  padding: 16px;
+}
+
+.terraform-import aside p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.terraform-import aside code {
+  background: #f3f5f7;
+  color: var(--ink);
+  padding: 2px 4px;
+}
+
+.terraform-import dl {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.terraform-import dl div {
+  background: #f7f9fb;
+  border: 1px solid var(--line);
+  padding: 10px;
+}
+
+.terraform-import dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.terraform-import dd {
+  font-size: 1.5rem;
+  font-weight: 900;
+  margin: 0;
+}
+
+.terraform-import button {
+  width: 100%;
+}
+
+.form-error {
+  color: var(--red);
+  font-weight: 800;
+  margin: 10px 0 0;
+}
+
 .connector-status {
   display: inline-flex;
   font-size: 0.78rem;
@@ -745,6 +815,7 @@ nav span {
   .metrics,
   .service-grid,
   .integration-grid,
+  .terraform-import,
   .runbook-grid,
   .runbook-columns {
     grid-template-columns: 1fr;

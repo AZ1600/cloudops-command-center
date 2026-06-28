@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { integrations } from "@/data/integrations";
 import { runbooks } from "@/data/runbooks";
+import { sampleTerraformPlan } from "@/data/sample-terraform-plan";
 import { serviceCatalog } from "@/data/service-catalog";
 import { canApprove, canExecute } from "@/lib/permissions";
 import { summarizeRisks } from "@/lib/risk-engine";
-import type { InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource } from "@/lib/types";
+import type { InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource, TerraformPlanSummary } from "@/lib/types";
 
 const sourceLabel = {
   github: "GitHub",
@@ -67,6 +68,9 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
   const [platformState, setPlatformState] = useState(initialState);
   const [scanRunCount, setScanRunCount] = useState(1);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [terraformPlanJson, setTerraformPlanJson] = useState(sampleTerraformPlan);
+  const [terraformPlanSummary, setTerraformPlanSummary] = useState<TerraformPlanSummary | null>(null);
+  const [terraformImportError, setTerraformImportError] = useState<string | null>(null);
 
   const { auditEvents, currentMember, executionEvents, risks, workspace } = platformState;
   const summary = useMemo(() => summarizeRisks(risks), [risks]);
@@ -161,6 +165,31 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
 
       setPlatformState((await response.json()) as PlatformState);
       setScanRunCount((current) => current + 1);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function importTerraformPlan() {
+    setPendingAction("terraform-import");
+    setTerraformImportError(null);
+
+    try {
+      const response = await fetch("/api/terraform-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planJson: terraformPlanJson }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Terraform plan JSON could not be imported");
+      }
+
+      const nextState = (await response.json()) as PlatformState & { terraformPlanSummary?: TerraformPlanSummary };
+      setPlatformState(nextState);
+      setTerraformPlanSummary(nextState.terraformPlanSummary ?? null);
+    } catch {
+      setTerraformImportError("Paste valid Terraform plan JSON from terraform show -json.");
     } finally {
       setPendingAction(null);
     }
@@ -473,6 +502,50 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
                 <p>{integration.nextStep}</p>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section className="panel terraform-panel" id="terraform-import">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Terraform Import</p>
+              <h3>Plan JSON risk detection</h3>
+            </div>
+            <span>{terraformPlanSummary ? `${terraformPlanSummary.generatedRisks} risks imported` : "Paste plan JSON"}</span>
+          </div>
+          <div className="terraform-import">
+            <div>
+              <textarea
+                aria-label="Terraform plan JSON"
+                onChange={(event) => setTerraformPlanJson(event.target.value)}
+                spellCheck={false}
+                value={terraformPlanJson}
+              />
+              {terraformImportError ? <p className="form-error">{terraformImportError}</p> : null}
+            </div>
+            <aside>
+              <strong>Accepted input</strong>
+              <p>Paste output from <code>terraform show -json plan.out</code>. CloudOps detects risky changes and routes them into approvals.</p>
+              {terraformPlanSummary ? (
+                <dl>
+                  <div>
+                    <dt>Total changes</dt>
+                    <dd>{terraformPlanSummary.totalChanges}</dd>
+                  </div>
+                  <div>
+                    <dt>Risky changes</dt>
+                    <dd>{terraformPlanSummary.riskyChanges}</dd>
+                  </div>
+                  <div>
+                    <dt>Generated risks</dt>
+                    <dd>{terraformPlanSummary.generatedRisks}</dd>
+                  </div>
+                </dl>
+              ) : null}
+              <button disabled={pendingAction === "terraform-import"} onClick={importTerraformPlan}>
+                {pendingAction === "terraform-import" ? "Importing plan" : "Import Terraform plan"}
+              </button>
+            </aside>
           </div>
         </section>
 

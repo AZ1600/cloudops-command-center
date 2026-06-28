@@ -1,6 +1,6 @@
 import { getPool, isPostgresEnabled } from "@/lib/db";
 import { createDemoPlatformState, demoWorkspace } from "@/lib/platform-state";
-import type { AuditEvent, ExecutionEvent, InfrastructureRisk, PlatformState, RiskStatus, WorkspaceMember } from "@/lib/types";
+import type { AuditEvent, ExecutionEvent, InfrastructureRisk, PlatformState, RiskStatus, TerraformPlanSummary, WorkspaceMember } from "@/lib/types";
 
 let memoryState = createDemoPlatformState();
 
@@ -124,6 +124,42 @@ export async function updateRisk(member: WorkspaceMember, riskId: string, status
       ],
     );
   }
+
+  return getPlatformState(member);
+}
+
+export async function importTerraformRisks(member: WorkspaceMember, risks: InfrastructureRisk[], summary: TerraformPlanSummary): Promise<PlatformState> {
+  const existingState = await getPlatformState(member);
+  const auditEvent: AuditEvent = {
+    id: `audit-terraform-import-${Date.now()}`,
+    riskId: "terraform-import",
+    riskTitle: "Terraform plan imported",
+    action: "scan",
+    actor: member.name,
+    detail: `${summary.totalChanges} Terraform changes reviewed. ${summary.generatedRisks} risks generated for owner approval.`,
+    createdAt: nowLabel(),
+  };
+
+  if (!isPostgresEnabled()) {
+    const existingById = new Map(existingState.risks.map((risk) => [risk.id, risk]));
+    risks.forEach((risk) => existingById.set(risk.id, risk));
+
+    memoryState = {
+      ...existingState,
+      risks: Array.from(existingById.values()),
+      auditEvents: [auditEvent, ...existingState.auditEvents],
+    };
+    return memoryState;
+  }
+
+  const pool = getPool();
+  if (!pool) {
+    return existingState;
+  }
+
+  await ensureSeedData(member);
+  await Promise.all(risks.map((risk) => upsertRisk(member.workspaceId, risk)));
+  await insertAuditEvent(member.workspaceId, auditEvent);
 
   return getPlatformState(member);
 }
