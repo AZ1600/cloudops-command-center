@@ -1,0 +1,13 @@
+name: Demo Failure For CloudOps
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fail-on-purpose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate failed deployment
+        run: |
+          echo "This failure is intentional for CloudOps risk detection"
+          exit 1
