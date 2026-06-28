@@ -130,3 +130,10 @@ export type TerraformPlanSummary = {
   riskyChanges: number;
   generatedRisks: number;
 };
+
+export type GitHubActionsSummary = {
+  repository: string;
+  totalRuns: number;
+  failedRuns: number;
+  generatedRisks: number;
+};

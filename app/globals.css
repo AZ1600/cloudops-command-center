@@ -581,6 +581,7 @@ nav span {
 
 .services-panel,
 .integrations-panel,
+.github-panel,
 .terraform-panel,
 .runbooks-panel {
   margin-bottom: 34px;
@@ -694,10 +695,32 @@ nav span {
   padding: 10px;
 }
 
+.github-import,
 .terraform-import {
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.github-import > div {
+  display: grid;
+  gap: 8px;
+}
+
+.github-import label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.github-import input {
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  min-height: 46px;
+  padding: 0 12px;
+  width: 100%;
 }
 
 .terraform-import textarea {
@@ -711,11 +734,13 @@ nav span {
   width: 100%;
 }
 
+.github-import aside,
 .terraform-import aside {
   border: 1px solid var(--line);
   padding: 16px;
 }
 
+.github-import aside p,
 .terraform-import aside p {
   color: var(--muted);
   line-height: 1.5;
@@ -727,18 +752,21 @@ nav span {
   padding: 2px 4px;
 }
 
+.github-import dl,
 .terraform-import dl {
   display: grid;
   gap: 8px;
   margin: 16px 0;
 }
 
+.github-import dl div,
 .terraform-import dl div {
   background: #f7f9fb;
   border: 1px solid var(--line);
   padding: 10px;
 }
 
+.github-import dt,
 .terraform-import dt {
   color: var(--muted);
   font-size: 0.72rem;
@@ -747,12 +775,14 @@ nav span {
   text-transform: uppercase;
 }
 
+.github-import dd,
 .terraform-import dd {
   font-size: 1.5rem;
   font-weight: 900;
   margin: 0;
 }
 
+.github-import button,
 .terraform-import button {
   width: 100%;
 }
@@ -815,6 +845,7 @@ nav span {
   .metrics,
   .service-grid,
   .integration-grid,
+  .github-import,
   .terraform-import,
   .runbook-grid,
   .runbook-columns {

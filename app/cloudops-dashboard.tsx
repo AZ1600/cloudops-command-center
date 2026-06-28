@@ -7,7 +7,7 @@ import { sampleTerraformPlan } from "@/data/sample-terraform-plan";
 import { serviceCatalog } from "@/data/service-catalog";
 import { canApprove, canExecute } from "@/lib/permissions";
 import { summarizeRisks } from "@/lib/risk-engine";
-import type { InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource, TerraformPlanSummary } from "@/lib/types";
+import type { GitHubActionsSummary, InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource, TerraformPlanSummary } from "@/lib/types";
 
 const sourceLabel = {
   github: "GitHub",
@@ -71,6 +71,9 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
   const [terraformPlanJson, setTerraformPlanJson] = useState(sampleTerraformPlan);
   const [terraformPlanSummary, setTerraformPlanSummary] = useState<TerraformPlanSummary | null>(null);
   const [terraformImportError, setTerraformImportError] = useState<string | null>(null);
+  const [githubRepository, setGithubRepository] = useState("AZ1600/cloudops-command-center");
+  const [githubActionsSummary, setGithubActionsSummary] = useState<GitHubActionsSummary | null>(null);
+  const [githubImportError, setGithubImportError] = useState<string | null>(null);
 
   const { auditEvents, currentMember, executionEvents, risks, workspace } = platformState;
   const summary = useMemo(() => summarizeRisks(risks), [risks]);
@@ -190,6 +193,31 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
       setTerraformPlanSummary(nextState.terraformPlanSummary ?? null);
     } catch {
       setTerraformImportError("Paste valid Terraform plan JSON from terraform show -json.");
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function fetchGithubActions() {
+    setPendingAction("github-actions");
+    setGithubImportError(null);
+
+    try {
+      const response = await fetch("/api/github-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repository: githubRepository }),
+      });
+
+      if (!response.ok) {
+        throw new Error("GitHub Actions runs could not be fetched");
+      }
+
+      const nextState = (await response.json()) as PlatformState & { githubActionsSummary?: GitHubActionsSummary };
+      setPlatformState(nextState);
+      setGithubActionsSummary(nextState.githubActionsSummary ?? null);
+    } catch {
+      setGithubImportError("Use owner/repo format and confirm GitHub Actions is visible to this app.");
     } finally {
       setPendingAction(null);
     }
@@ -502,6 +530,51 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
                 <p>{integration.nextStep}</p>
               </article>
             ))}
+          </div>
+        </section>
+
+        <section className="panel github-panel" id="github-actions">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">GitHub Actions</p>
+              <h3>Live workflow failure detection</h3>
+            </div>
+            <span>{githubActionsSummary ? `${githubActionsSummary.generatedRisks} risks imported` : "Fetch workflow runs"}</span>
+          </div>
+          <div className="github-import">
+            <div>
+              <label htmlFor="github-repository">Repository</label>
+              <input
+                id="github-repository"
+                onChange={(event) => setGithubRepository(event.target.value)}
+                placeholder="owner/repository"
+                value={githubRepository}
+              />
+              {githubImportError ? <p className="form-error">{githubImportError}</p> : null}
+            </div>
+            <aside>
+              <strong>Detection path</strong>
+              <p>CloudOps reads recent workflow runs, turns failed deployments into risks, and routes them to the platform owner approval queue.</p>
+              {githubActionsSummary ? (
+                <dl>
+                  <div>
+                    <dt>Total runs</dt>
+                    <dd>{githubActionsSummary.totalRuns}</dd>
+                  </div>
+                  <div>
+                    <dt>Failed runs</dt>
+                    <dd>{githubActionsSummary.failedRuns}</dd>
+                  </div>
+                  <div>
+                    <dt>Generated risks</dt>
+                    <dd>{githubActionsSummary.generatedRisks}</dd>
+                  </div>
+                </dl>
+              ) : null}
+              <button disabled={pendingAction === "github-actions"} onClick={fetchGithubActions}>
+                {pendingAction === "github-actions" ? "Fetching runs" : "Fetch GitHub Actions"}
+              </button>
+            </aside>
           </div>
         </section>
 

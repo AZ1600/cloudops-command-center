@@ -4,10 +4,10 @@ export const integrations: Integration[] = [
   {
     id: "github",
     name: "GitHub Actions",
-    status: "mock",
-    lastSync: "2 minutes ago",
+    status: "connected",
+    lastSync: "Live fetch available",
     provides: ["workflow runs", "deployment failures", "release history"],
-    nextStep: "Connect GitHub App for live workflow status.",
+    nextStep: "Fetch workflow runs by repository and route failed deployments to owners.",
   },
   {
     id: "aws",

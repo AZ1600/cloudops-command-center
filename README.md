@@ -197,6 +197,7 @@ The app now includes the first production-readiness layer:
 - Demo in-memory fallback when no database is configured
 - API routes for platform state, risk scans, and approval actions
 - Terraform plan JSON import with infrastructure risk detection
+- GitHub Actions workflow run import with failed deployment risk detection
 
 Environment variables for production mode:
 
@@ -205,7 +206,10 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
 DATABASE_URL=
 DATABASE_SSL=true
+GITHUB_TOKEN=
 ```
+
+`GITHUB_TOKEN` is optional for public repositories, but recommended for private repositories and higher API limits.
 
 Apply the Neon schema after setting `DATABASE_URL`:
 
@@ -217,7 +221,6 @@ npm run db:apply
 
 ## Future Improvements
 
-- Connect live GitHub Actions API
 - Add AWS read-only integration
 - Add Kubernetes read-only cluster integration
 - Add Prometheus or Alertmanager webhook ingestion

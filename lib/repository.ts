@@ -1,6 +1,6 @@
 import { getPool, isPostgresEnabled } from "@/lib/db";
 import { createDemoPlatformState, demoWorkspace } from "@/lib/platform-state";
-import type { AuditEvent, ExecutionEvent, InfrastructureRisk, PlatformState, RiskStatus, TerraformPlanSummary, WorkspaceMember } from "@/lib/types";
+import type { AuditEvent, ExecutionEvent, GitHubActionsSummary, InfrastructureRisk, PlatformState, RiskStatus, TerraformPlanSummary, WorkspaceMember } from "@/lib/types";
 
 let memoryState = createDemoPlatformState();
 
@@ -129,16 +129,39 @@ export async function updateRisk(member: WorkspaceMember, riskId: string, status
 }
 
 export async function importTerraformRisks(member: WorkspaceMember, risks: InfrastructureRisk[], summary: TerraformPlanSummary): Promise<PlatformState> {
+  return importDetectedRisks(
+    member,
+    risks,
+    {
+      id: `audit-terraform-import-${Date.now()}`,
+      riskId: "terraform-import",
+      riskTitle: "Terraform plan imported",
+      action: "scan",
+      actor: member.name,
+      detail: `${summary.totalChanges} Terraform changes reviewed. ${summary.generatedRisks} risks generated for owner approval.`,
+      createdAt: nowLabel(),
+    },
+  );
+}
+
+export async function importGitHubActionsRisks(member: WorkspaceMember, risks: InfrastructureRisk[], summary: GitHubActionsSummary): Promise<PlatformState> {
+  return importDetectedRisks(
+    member,
+    risks,
+    {
+      id: `audit-github-actions-import-${Date.now()}`,
+      riskId: "github-actions-import",
+      riskTitle: "GitHub Actions runs imported",
+      action: "scan",
+      actor: member.name,
+      detail: `${summary.totalRuns} workflow runs reviewed for ${summary.repository}. ${summary.generatedRisks} failed runs generated risks for owner approval.`,
+      createdAt: nowLabel(),
+    },
+  );
+}
+
+async function importDetectedRisks(member: WorkspaceMember, risks: InfrastructureRisk[], auditEvent: AuditEvent): Promise<PlatformState> {
   const existingState = await getPlatformState(member);
-  const auditEvent: AuditEvent = {
-    id: `audit-terraform-import-${Date.now()}`,
-    riskId: "terraform-import",
-    riskTitle: "Terraform plan imported",
-    action: "scan",
-    actor: member.name,
-    detail: `${summary.totalChanges} Terraform changes reviewed. ${summary.generatedRisks} risks generated for owner approval.`,
-    createdAt: nowLabel(),
-  };
 
   if (!isPostgresEnabled()) {
     const existingById = new Map(existingState.risks.map((risk) => [risk.id, risk]));
