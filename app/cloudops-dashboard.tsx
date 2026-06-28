@@ -64,6 +64,7 @@ type OwnerSummary = {
 
 export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
   const [risks, setRisks] = useState(initialRisks);
+  const [scanRunCount, setScanRunCount] = useState(1);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([
     {
       id: "audit-scan-001",
@@ -186,6 +187,7 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
   function resetScan() {
     setRisks(initialRisks);
     setExecutionEvents([]);
+    setScanRunCount((current) => current + 1);
     setAuditEvents([
       {
         id: "audit-scan-reset",
@@ -239,6 +241,16 @@ export function CloudOpsDashboard({ initialRisks }: CloudOpsDashboardProps) {
             <button className="secondary">Export audit</button>
           </div>
         </header>
+
+        <section className="scan-status" aria-live="polite">
+          <div>
+            <strong>Scan complete</strong>
+            <span>
+              Run #{scanRunCount} found {initialRisks.length} infrastructure risks across {Object.keys(signalsBySource).length} signal sources.
+            </span>
+          </div>
+          <span>{summary.needsApproval} waiting for approval</span>
+        </section>
 
         <section className="metrics" aria-label="Risk summary">
           <article>

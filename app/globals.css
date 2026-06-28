@@ -176,6 +176,37 @@ nav span {
   white-space: nowrap;
 }
 
+.scan-status {
+  align-items: center;
+  background: var(--teal-soft);
+  border: 1px solid rgba(13, 127, 117, 0.25);
+  color: var(--teal);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+}
+
+.scan-status div {
+  display: grid;
+  gap: 4px;
+}
+
+.scan-status strong {
+  color: var(--ink);
+}
+
+.scan-status span {
+  color: var(--teal);
+  font-weight: 800;
+}
+
+.scan-status div span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .metrics {
   display: grid;
   gap: 16px;
