@@ -561,3 +561,414 @@ The production build completed successfully and preserved all existing applicati
 ### Next step
 
 Create the CloudOps ingestion layer that accepts validated PlatformPilot findings, maps them into internal CloudOps risks, and prevents duplicates.
+
+### Commit checkpoint
+
+The completed contract feature was committed with:
+
+```bash
+git commit -m "feat: add operational finding contract validation"
+```
+
+Commit created:
+
+```text
+2be49c0 feat: add operational finding contract validation
+```
+
+The commit contains the schema, valid and invalid examples, AJV dependencies, reusable validator, automated tests, and learning documentation.
+
+---
+
+## Session 3 — PlatformPilot ingestion architecture
+
+**Date:** 18 July 2026
+**Branch:** `codex/external-findings-v1`
+
+### Goal
+
+Add an ingestion path that receives validated PlatformPilot findings, converts them into CloudOps risks, prevents duplicates, and records an audit event.
+
+### Discover the relevant source files
+
+```bash
+find app/api lib -maxdepth 3 -type f | sort
+```
+
+The command identified the existing API routes and business-logic modules without changing any files.
+
+### Inspect the existing risk-scan route
+
+```bash
+sed -n '1,240p' app/api/risk-scan/route.ts
+```
+
+The route follows a thin-controller design:
+
+1. Resolve the current authenticated member.
+2. Call a repository operation.
+3. Return the resulting platform state as JSON.
+
+### Inspect repository storage and imports
+
+```bash
+sed -n '1,320p' lib/repository.ts
+```
+
+The repository supports two storage modes:
+
+- In-memory state for local and demo use.
+- PostgreSQL when database configuration is enabled.
+
+The existing `importDetectedRisks` function already implements deduplication:
+
+- Memory mode uses a `Map` keyed by risk ID.
+- PostgreSQL mode uses `on conflict (id)` through `upsertRisk`.
+
+Terraform and GitHub Actions use public wrapper functions around this private importer. PlatformPilot should follow the same pattern instead of creating a separate storage system.
+
+### Inspect an existing external-ingestion route
+
+```bash
+sed -n '1,240p' app/api/github-actions/route.ts
+```
+
+The GitHub Actions route establishes the API convention:
+
+1. Authenticate the current member.
+2. Parse request JSON.
+3. Reject missing required input with HTTP status `400`.
+4. Call a source-specific service that creates risks.
+5. Import risks through the shared repository.
+6. Return the updated platform state and source summary.
+
+PlatformPilot ingestion will reuse this structure while adding JSON Schema validation before mapping external data into internal CloudOps types.
+
+### Inspect source-to-risk mapping
+
+```bash
+sed -n '1,320p' lib/github-actions.ts
+```
+
+The GitHub Actions service separates three responsibilities:
+
+1. Fetch and normalize external data.
+2. Select only events that represent operational failures.
+3. Convert each failure into an internal `InfrastructureRisk`.
+
+The mapper establishes useful conventions for PlatformPilot:
+
+- Construct stable risk IDs so repeat imports update an existing risk instead of creating duplicates.
+- Map the external source into CloudOps' internal source vocabulary.
+- Assign a service, owner, category, severity, and routing target.
+- Preserve source evidence that an engineer can inspect.
+- Explain operational impact rather than reporting only a raw status.
+- Provide safe remediation guidance and a command preview.
+- Set status to `needs_approval` and keep `approvalRequired` equal to `true`.
+
+For PlatformPilot, the external source value `platform-pilot` will map to the internal CloudOps source `kubernetes`. PlatformPilot supplies observations and evidence; CloudOps remains responsible for owner routing, approval, remediation guidance, and audit history.
+
+### Confirm JSON Schema imports are supported
+
+```bash
+sed -n '1,220p' tsconfig.json
+```
+
+The TypeScript configuration contains:
+
+```json
+"resolveJsonModule": true
+```
+
+This allows the application to import the shared JSON Schema directly instead of maintaining a separate copy of its validation rules.
+
+### Create the PlatformPilot validation and mapping module
+
+```bash
+touch lib/platform-pilot.ts
+```
+
+The module creates a clear trust boundary:
+
+```text
+unknown HTTP input
+→ JSON Schema validation
+→ trusted PlatformPilotFinding
+→ internal InfrastructureRisk
+```
+
+CloudOps does not trust a TypeScript type assertion as runtime validation. AJV checks the actual request data before the mapper can use it.
+
+The mapper assigns a stable risk ID, maps the source to `kubernetes`, translates external categories, preserves evidence and confidence, routes the risk to the Platform Team, and forces the risk into `needs_approval` status.
+
+The recommendation uses manual execution and contains no automatically executed command. This preserves the human safety gate and does not contact AWS.
+
+### Verify the mapper compiles
+
+```bash
+npm run typecheck
+```
+
+TypeScript completed without errors.
+
+### Test PlatformPilot validation and mapping
+
+```bash
+touch tests/platform-pilot.test.ts
+npm run test -- tests/platform-pilot.test.ts
+```
+
+Result:
+
+```text
+Test Files  1 passed
+Tests       3 passed
+```
+
+The tests prove that:
+
+- A contract-compliant finding is accepted.
+- Invalid runtime data is rejected before mapping.
+- The external source maps to the internal `kubernetes` source.
+- Workload health maps to the internal reliability category.
+- Evidence, environment, cluster, namespace, confidence, and correlation identity are preserved.
+- The resulting risk remains manual, routed, and approval-gated.
+- The stable risk ID can be used by the repository for deduplication.
+
+### Connect PlatformPilot to the shared repository
+
+An `importPlatformPilotRisk` wrapper was added to `lib/repository.ts`.
+
+The wrapper:
+
+- Accepts one mapped `InfrastructureRisk`.
+- Reuses the existing batch importer by wrapping the risk in an array.
+- Uses the existing in-memory and PostgreSQL persistence paths.
+- Reuses stable ID deduplication rather than creating another storage mechanism.
+- Creates an audit event with `PlatformPilot` as the actor.
+- Records that the risk was routed and held behind the approval gate.
+
+```bash
+npm run typecheck
+```
+
+TypeScript completed without errors after the repository integration.
+
+### Create the PlatformPilot ingestion route
+
+```bash
+mkdir -p app/api/platform-pilot/findings
+touch app/api/platform-pilot/findings/route.ts
+```
+
+The new endpoint is:
+
+```text
+POST /api/platform-pilot/findings
+```
+
+The route implements three distinct outcomes:
+
+- HTTP `400` when the request body is not valid JSON.
+- HTTP `422` when JSON is syntactically valid but violates the operational finding contract.
+- HTTP `200` when the finding is validated, mapped, and imported.
+
+The success response includes the external finding ID, internal risk ID, and an accepted status. The endpoint creates an approval-gated risk; it does not execute remediation.
+
+```bash
+npm run typecheck
+```
+
+TypeScript completed without errors after adding the route.
+
+### Inspect local authentication behaviour
+
+```bash
+sed -n '1,240p' lib/auth.ts
+```
+
+When Clerk keys are not configured, `getCurrentMember` returns a deterministic demo workspace owner. Route tests can therefore exercise the real authentication fallback, mapper, and repository without mocking Clerk or contacting an external identity service.
+
+This behaviour is convenient for local development, but production security still depends on correctly configured Clerk environment variables and future source-to-service authentication for PlatformPilot.
+
+### Test the complete ingestion route
+
+```bash
+touch tests/platform-pilot-route.test.ts
+npm run test -- tests/platform-pilot-route.test.ts
+```
+
+Result:
+
+```text
+Test Files  1 passed
+Tests       4 passed
+```
+
+The tests call the real route function with real web `Request` objects while remaining entirely local.
+
+They prove four behaviours:
+
+1. Malformed JSON returns HTTP `400`.
+2. Valid JSON that violates the contract returns HTTP `422` with validation details.
+3. A valid PlatformPilot finding returns HTTP `200` and becomes an approval-gated CloudOps risk.
+4. Sending the same stable finding twice leaves only one matching risk in repository state.
+
+Each test resets the in-memory demo platform state first. This prevents one test's data from affecting another test and makes results repeatable.
+
+### Run the full regression suite
+
+```bash
+npm run test
+```
+
+Result:
+
+```text
+Test Files  9 passed
+Tests       26 passed
+```
+
+The PlatformPilot validation, mapping, route, and deduplication tests passed alongside all existing Terraform, GitHub Actions, integration, runbook, risk-engine, and service-catalog tests.
+
+### Run static quality checks
+
+```bash
+npm run lint
+npm run typecheck
+```
+
+Both commands completed without errors. ESLint verified code-quality rules, while TypeScript verified imports, arguments, return values, schema types, and route response handling.
+
+### Debugging issue: expected output entered as a command
+
+The route-table line was accidentally entered into zsh:
+
+```text
+ƒ /api/platform-pilot/findings
+```
+
+zsh responded:
+
+```text
+zsh: command not found: ƒ
+```
+
+The `ƒ` symbol is Next.js build notation for a dynamic server route, not an executable command. The correct command was `npm run build`; the route-table line was output to look for afterward.
+
+### Verify the production build
+
+```bash
+npm run build
+```
+
+The build completed successfully and included:
+
+```text
+ƒ /api/platform-pilot/findings
+```
+
+This confirms that Next.js recognizes the ingestion endpoint and will server-render it on demand.
+
+### Start the local development server
+
+```bash
+npm run dev
+```
+
+Next.js started successfully at `http://localhost:3000`.
+
+### Send a real valid HTTP request
+
+```bash
+curl -sS \
+  -o /tmp/platform-pilot-response.json \
+  -w "HTTP %{http_code}\n" \
+  -X POST \
+  http://localhost:3000/api/platform-pilot/findings \
+  -H "Content-Type: application/json" \
+  --data-binary @contracts/examples/platform-pilot-valid.json
+```
+
+Result:
+
+```text
+HTTP 200
+```
+
+The response receipt connected the external finding ID to the internal CloudOps risk ID and reported an accepted status.
+
+The stored risk confirmed:
+
+- Internal source `kubernetes`.
+- Service `worker-ingestion`.
+- Critical reliability risk.
+- PlatformPilot evidence and 94% confidence preserved.
+- Crash-loop runbook suggested.
+- Manual execution mode.
+- Status `needs_approval`.
+- `approvalRequired` equal to `true`.
+- Routing to the Platform Team.
+
+This exercised the real local network path through Next.js, validation, mapping, repository storage, and response serialization.
+
+### Prove deduplication through HTTP
+
+The same valid finding was submitted a second time and again returned HTTP `200`.
+
+The matching internal risk count was checked with Node.js:
+
+```text
+Matching risks: 1
+```
+
+Both requests generated the same stable internal risk ID. In-memory repository storage replaced the existing map entry instead of appending a duplicate risk.
+
+An accepted repeated observation is not treated as an error because a source may legitimately resend or refresh evidence for an existing finding.
+
+### Prove contract rejection through HTTP
+
+The deliberately invalid fixture was sent to the live local endpoint.
+
+Result:
+
+```text
+HTTP 422
+```
+
+The response contained a general contract-validation error and detailed corrections for the unexpected property, empty finding ID, incorrect source, invalid timestamp, unsupported environment, category and severity, out-of-range confidence, empty summary and evidence, and missing approval guarantee.
+
+The route rejected the finding before mapping or repository storage. This prevents malformed operational evidence from entering CloudOps state.
+
+### Prove malformed JSON rejection through HTTP
+
+A request containing only an opening brace was sent to the live endpoint.
+
+Result:
+
+```text
+HTTP 400
+```
+
+Response:
+
+```json
+{
+  "error": "Request body must contain valid JSON"
+}
+```
+
+JSON parsing failed before schema validation, mapping, or repository access. The live endpoint has now demonstrated the expected `200`, `422`, and `400` outcomes.
+
+### Stop the local server and inspect generated changes
+
+The Next.js development server was stopped with `Control + C`.
+
+```bash
+git status -sb
+git diff -- next-env.d.ts
+```
+
+Running `next dev` changed the generated route-type reference in `next-env.d.ts` from `.next/types` to `.next/dev/types`.
+
+The file states that it should not be edited manually, and this change is unrelated to PlatformPilot. Generated development-server churn should be restored rather than mixed into the feature commit.

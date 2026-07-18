@@ -160,6 +160,27 @@ export async function importGitHubActionsRisks(member: WorkspaceMember, risks: I
   );
 }
 
+export async function importPlatformPilotRisk(
+  member: WorkspaceMember,
+  risk: InfrastructureRisk
+): Promise<PlatformState> {
+  return importDetectedRisks(
+    member,
+    [risk],
+    {
+      id: `audit-platform-pilot-import-${risk.id}-${Date.now()}`,
+      riskId: risk.id,
+      riskTitle: risk.title,
+      action: "scan",
+      actor: "PlatformPilot",
+      detail:
+        `PlatformPilot finding imported for ${risk.service}. ` +
+        `Risk routed to ${risk.routedTo} and held for approval.`,
+      createdAt: nowLabel()
+    }
+  );
+}
+
 async function importDetectedRisks(member: WorkspaceMember, risks: InfrastructureRisk[], auditEvent: AuditEvent): Promise<PlatformState> {
   const existingState = await getPlatformState(member);
 
