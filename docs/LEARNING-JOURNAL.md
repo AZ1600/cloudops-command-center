@@ -711,6 +711,180 @@ npm run typecheck
 
 TypeScript completed without errors.
 
+### Test service authentication independently
+
+```bash
+touch tests/platform-pilot-auth.test.ts
+npm run test -- tests/platform-pilot-auth.test.ts
+```
+
+Result:
+
+```text
+Test Files  1 passed
+Tests       5 passed
+```
+
+### Run the authenticated full regression suite
+
+```bash
+npm run test
+```
+
+Result:
+
+```text
+Test Files  10 passed
+Tests       33 passed
+```
+
+All authentication, route, validation, mapping, repository, and existing application tests passed together without environment-variable leakage.
+
+### Document the required environment variable
+
+```bash
+touch .env.example
+```
+
+The example documents `PLATFORM_PILOT_INGEST_TOKEN` with a non-secret placeholder. Real values belong in ignored `.env.local` files, Vercel environment configuration, or a production secrets manager.
+
+The example file is intentionally visible to Git; real `.env` and `.env.local` files remain ignored.
+
+### Run final static checks and production build
+
+```bash
+npm run lint
+npm run typecheck
+npm run build
+```
+
+All commands completed successfully. The production route table still includes the dynamic `/api/platform-pilot/findings` endpoint.
+
+### Verify authentication through real HTTP requests
+
+The local server was started with a temporary token applied only to that process:
+
+```bash
+PLATFORM_PILOT_INGEST_TOKEN=local-development-only-token npm run dev
+```
+
+A valid finding without an Authorization header returned:
+
+```text
+HTTP 401
+```
+
+A valid finding with an incorrect token also returned:
+
+```text
+HTTP 401
+```
+
+Both failures returned the same generic message so the endpoint did not reveal whether credentials were missing or incorrect.
+
+The same valid finding with the matching Bearer token returned:
+
+```text
+HTTP 200
+```
+
+The accepted response contained the external finding ID, internal risk ID, and accepted status. This proves that valid content alone is insufficient; the caller must also present the configured service credential.
+
+The tests verify missing configuration, missing credentials, incorrect credentials, correct credentials, and case-insensitive handling of the Bearer authentication scheme. Test environment variables are restored after every test to prevent state leakage.
+
+### Debugging issue: Vitest found a file but no test suite
+
+After attempting to connect authentication to the route, the focused route test reported:
+
+```text
+tests/platform-pilot-route.test.ts (0 tests)
+Error: No test suite found in file
+```
+
+This was not an authentication assertion failure. Inspection showed that the authentication implementation had accidentally been pasted into `tests/platform-pilot-route.test.ts`.
+
+Vitest discovered the file because its name still ended in `.test.ts`, but the saved contents contained no `describe`, `it`, or `test` calls. Vitest therefore loaded the file successfully and reported zero registered tests.
+
+The actual API route was also inspected and still contained its previous unauthenticated implementation. The likely cause was editing the wrong active VS Code tab.
+
+Recovery plan:
+
+1. Restore the committed route-test file.
+2. Open the exact API route path.
+3. Apply authentication to the route itself.
+4. Rerun the route tests to observe the expected authorization-related failures.
+
+Lesson: when a test runner reports `0 tests`, inspect the test file before debugging application logic. Confirm both the active editor tab and the saved file path.
+
+### Expected failure after enabling authentication
+
+After restoring the route tests and applying authentication to the correct API route, Vitest discovered all four tests but all four failed.
+
+Three failures showed the same root cause:
+
+```text
+expected 503 to be 400
+expected 503 to be 422
+expected 503 to be 200
+```
+
+The tests did not configure `PLATFORM_PILOT_INGEST_TOKEN`. Because authentication is the first route operation, every request stopped at the missing-server-configuration branch and returned `503` before JSON parsing, contract validation, mapping, or storage.
+
+The duplicate test then reported:
+
+```text
+Cannot read properties of undefined (reading 'filter')
+```
+
+This was a secondary or cascading failure. The test assumed that a successful response contained `risks`, but the actual `503` response contained only an error. Therefore `secondBody.risks` was undefined and `.filter()` could not run.
+
+Lesson: diagnose the earliest unexpected status first. Later exceptions may be consequences of the first failure rather than separate application defects.
+
+### Update route tests for authentication
+
+The route tests were updated to configure a fake test-only server token and send the matching Bearer header for requests intended to reach JSON parsing, validation, mapping, and storage.
+
+Two additional integration cases were added:
+
+- Missing server configuration returns `503`.
+- Missing request authorization returns `401`.
+
+The test token is deliberately fake and safe to commit. Each test restores the original environment afterward.
+
+```bash
+npm run test -- tests/platform-pilot-route.test.ts
+```
+
+Result:
+
+```text
+Test Files  1 passed
+Tests       6 passed
+```
+
+Authenticated requests can now reach and verify the original `400`, `422`, `200`, and deduplication behaviours, while unauthenticated requests stop at the security gate.
+
+### Debugging issue: authentication test overwritten by route code
+
+The full suite later reported another zero-test failure for `tests/platform-pilot-auth.test.ts`. Inspection showed that the authenticated API route had been pasted into the authentication test file.
+
+The route tests still passed, confirming that the application route itself was correct. Only the authentication test source was wrong.
+
+Because the new test file had not yet been committed, Git could not restore an earlier version. Its five test cases were pasted back manually.
+
+To reduce future wrong-tab errors, use `Command + P`, enter the complete relative path, and verify the VS Code breadcrumb before replacing a full file.
+
+```bash
+npm run test -- tests/platform-pilot-auth.test.ts
+```
+
+Result:
+
+```text
+Test Files  1 passed
+Tests       5 passed
+```
+
 ### Test PlatformPilot validation and mapping
 
 ```bash
@@ -972,3 +1146,64 @@ git diff -- next-env.d.ts
 Running `next dev` changed the generated route-type reference in `next-env.d.ts` from `.next/types` to `.next/dev/types`.
 
 The file states that it should not be edited manually, and this change is unrelated to PlatformPilot. Generated development-server churn should be restored rather than mixed into the feature commit.
+
+### Commit the ingestion checkpoint
+
+```bash
+git commit -m "feat: ingest PlatformPilot findings"
+```
+
+Commit created:
+
+```text
+bc07e0b feat: ingest PlatformPilot findings
+```
+
+This checkpoint contains the mapper, runtime validation, repository import, deduplication, audit event, API route, unit tests, route tests, and live HTTP verification.
+
+The endpoint is functionally complete but should not be deployed until dedicated service-to-service authentication is added for PlatformPilot.
+
+---
+
+## Session 4 — PlatformPilot service authentication
+
+**Date:** 18 July 2026
+**Branch:** `codex/external-findings-v1`
+
+### Goal
+
+Require PlatformPilot to prove its identity before CloudOps parses or stores a finding.
+
+### Inspect environment-file protection
+
+```bash
+find . -maxdepth 2 -name ".env*" -print
+sed -n '1,220p' .gitignore
+```
+
+No environment files currently exist. `.env` and `.env.local` are ignored by Git, so a real ingestion token can be stored locally without committing it.
+
+An `.env.example` file may document the variable name with a placeholder, but it must never contain a real token.
+
+### Create service-token authentication
+
+```bash
+touch lib/platform-pilot-auth.ts
+```
+
+The authentication module requires an `Authorization: Bearer <token>` header and compares it with `PLATFORM_PILOT_INGEST_TOKEN` from the server environment.
+
+Security behaviour:
+
+- Missing server configuration returns HTTP `503`.
+- A missing, malformed, or incorrect request token returns HTTP `401`.
+- Failure messages do not reveal which part of a supplied secret was wrong.
+- Tokens are hashed into fixed-length SHA-256 digests.
+- `timingSafeEqual` compares the complete digests to reduce timing side-channel information.
+- The token is never written to logs or returned in a response.
+
+```bash
+npm run typecheck
+```
+
+TypeScript completed without errors.

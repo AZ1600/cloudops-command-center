@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentMember } from "@/lib/auth";
+import { authenticatePlatformPilotRequest } from "@/lib/platform-pilot-auth";
 import {
   mapPlatformPilotFindingToRisk,
   validatePlatformPilotFinding
@@ -7,6 +8,20 @@ import {
 import { importPlatformPilotRisk } from "@/lib/repository";
 
 export async function POST(request: Request) {
+  const authentication =
+    authenticatePlatformPilotRequest(request);
+
+  if (!authentication.authorized) {
+    return NextResponse.json(
+      {
+        error: authentication.error
+      },
+      {
+        status: authentication.status
+      }
+    );
+  }
+
   const member = await getCurrentMember();
 
   let body: unknown;
@@ -29,7 +44,8 @@ export async function POST(request: Request) {
   if (!validation.valid) {
     return NextResponse.json(
       {
-        error: "PlatformPilot finding failed contract validation",
+        error:
+          "PlatformPilot finding failed contract validation",
         validationErrors: validation.errors
       },
       {
@@ -42,7 +58,10 @@ export async function POST(request: Request) {
     validation.finding
   );
 
-  const state = await importPlatformPilotRisk(member, risk);
+  const state = await importPlatformPilotRisk(
+    member,
+    risk
+  );
 
   return NextResponse.json({
     ...state,
