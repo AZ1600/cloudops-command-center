@@ -711,6 +711,1390 @@ npm run typecheck
 
 TypeScript completed without errors.
 
+---
+
+## Session 5 — Inspect the PlatformPilot sender application
+
+**Date:** 18 July 2026
+**PlatformPilot branch:** `codex/cloudops-finding-sender-v1`
+
+### Goal
+
+Understand PlatformPilot's existing Python backend before adding the outbound CloudOps client. The sender must reuse the shared finding contract, keep the service token out of the browser, and avoid changing Kubernetes or AWS infrastructure.
+
+### Clone and isolate the work
+
+```bash
+git clone https://github.com/AZ1600/platform-pilot.git
+cd platform-pilot
+git switch -c codex/cloudops-finding-sender-v1
+```
+
+PlatformPilot was cloned at commit `ca710a5`, and a dedicated feature branch was created so the integration work stays separate from `main`.
+
+### Inspect the repository
+
+The repository contains a FastAPI/Python backend, a Vite frontend, Kubernetes manifests, documentation, and screenshots. Because the CloudOps ingestion token is a secret, the outbound sender belongs in the backend—not in browser-delivered frontend JavaScript.
+
+The backend already depends on `requests`, so it can make the authenticated HTTP request without introducing another HTTP-client library.
+
+### Inspect the configuration placeholder
+
+```bash
+sed -n '1,260p' backend/config.py
+wc -l backend/config.py
+ls -l backend/config.py
+```
+
+Results:
+
+```text
+0 backend/config.py
+-rw-r--r-- ... 0 ... backend/config.py
+```
+
+`sed` printed nothing because `backend/config.py` contains no text. `wc -l` confirmed zero lines, and `ls -l` confirmed a zero-byte file. This is not a runtime error; it is an unused placeholder. It gives us a clean location for typed backend-only settings such as the CloudOps findings URL, ingestion token, and request timeout.
+
+### Inspect the FastAPI entry point
+
+```bash
+sed -n '1,280p' backend/app.py
+```
+
+The entry point creates a FastAPI application named `app`, configures CORS for the local Vite development ports, and registers the separate AI and Prometheus routers. It also defines Kubernetes-facing endpoints directly in `app.py`, including health, pods, deployments, nodes, namespaces, events, logs, risks, and analysis.
+
+The `/risks` route already contains the beginning of the integration pipeline: it reads pods, selects pods whose status is not `Running`, analyzes each unhealthy pod, and returns the resulting risk records. The future CloudOps sender should consume a normalized finding derived from this backend data; it should not be added to the frontend and should not blindly send from every read-only `GET /risks` request.
+
+The first 280 lines ended partway through `app.py`, so the remainder must be inspected before choosing the exact integration boundary.
+
+The remaining lines complete two read-oriented views:
+
+- `/cluster-summary` calculates a health score, creates incident summaries for unhealthy pods, deployments, and nodes, and returns recommendations.
+- `/dashboard` combines unhealthy pods with AI analysis, Kubernetes events, and logs for the frontend dashboard.
+
+These routes calculate and return operational state, but neither currently represents an explicit delivery workflow. Sending to CloudOps directly from either `GET` route would create a side effect during ordinary page loads and refreshes. The integration should therefore use a dedicated sender function and an intentional trigger, with idempotency still enforced by CloudOps.
+
+### Discover the complete backend structure
+
+```bash
+find backend -maxdepth 3 -type f | sort
+```
+
+The deeper file listing revealed that PlatformPilot already has a layered backend structure:
+
+- `backend/core/` for shared application concerns, including `core/config.py`
+- `backend/routers/` for HTTP endpoints
+- `backend/services/` for application and integration logic
+- `backend/utils/` for formatting helpers
+
+This corrects the initial assumption based on the empty `backend/config.py`. A real configuration module may already exist at `backend/core/config.py`, so it must be inspected before adding settings. The CloudOps HTTP client will most likely belong under `backend/services/`, while its intentional API trigger will belong under `backend/routers/`.
+
+The entries displayed as `**init**.py` in the conversation are Python `__init__.py` package markers whose double underscores were interpreted as Markdown emphasis. They allow Python to treat those directories as importable packages.
+
+### Inspect PlatformPilot's active configuration module
+
+```bash
+sed -n '1,260p' backend/core/config.py
+```
+
+`backend/core/config.py` is the existing configuration source. It defines the application identity, reads the Prometheus URL and timeout from environment variables, supplies local-development defaults, and lists allowed frontend origins.
+
+This establishes the convention that the CloudOps destination and timeout should be read here rather than from the empty top-level `backend/config.py`. The ingestion token must also come from the environment, but unlike a local URL or timeout, it must not receive a real hard-coded default.
+
+The `%` shown directly after the final `]` is zsh indicating that the file does not end with a newline. It is not part of the Python source and is not an application failure.
+
+### Study the existing external-service client pattern
+
+```bash
+sed -n '1,320p' backend/services/prometheus_service.py
+```
+
+The Prometheus service establishes PlatformPilot's existing HTTP-client conventions:
+
+- use the already-installed `requests` library;
+- import URL and timeout settings from `core.config`;
+- always apply a finite timeout;
+- call `raise_for_status()` so unsuccessful HTTP responses cannot be mistaken for successful data;
+- translate connection and timeout failures into application-specific exceptions;
+- guard JSON decoding separately;
+- validate important response fields before returning data;
+- keep parsing and conversion in small helper functions.
+
+The CloudOps client should follow this style but will use `POST`, send an `Authorization: Bearer` header, and distinguish CloudOps outcomes such as `401` authentication failure, `422` contract rejection, and upstream `5xx` failure. Error messages and logs must never include the bearer token.
+
+### Locate PlatformPilot's analysis implementation
+
+```bash
+sed -n '1,360p' backend/services/analysis_service.py
+wc -l backend/services/analysis_service.py
+ls -l backend/services/analysis_service.py
+wc -l backend/services/ai_service.py backend/ai.py
+```
+
+`analysis_service.py` produced no output because it is another zero-byte placeholder. The size checks found 336 lines in `services/ai_service.py` and 41 lines in the older top-level `ai.py`.
+
+This suggests the repository is partway through a layered refactor: some service modules contain the newer implementation, while `app.py` still imports `analyze_pod` from the top-level `ai.py`. Both paths must be understood before choosing the source data for CloudOps findings.
+
+### Inspect the newer AI operations summary
+
+```bash
+sed -n '1,380p' backend/services/ai_service.py
+```
+
+`generate_cluster_summary()` gathers Kubernetes pod and node state plus Prometheus CPU, memory, and target-health data. It calculates a health score and returns findings, recommendations, score changes, metrics, and an `incidents` list.
+
+The incidents are the best starting point for outbound CloudOps findings because they already contain severity, origin, title, message, and—where available—resource and namespace. They are still internal PlatformPilot UI records and do not yet satisfy the shared `Operational Finding` contract.
+
+Required transformation work includes:
+
+- force contract `source` to `platform-pilot` while preserving Kubernetes or Prometheus as evidence;
+- add schema version, stable finding ID, observation time, environment, service, confidence, evidence, and `approvalRequired: true`;
+- map incident types to contract categories such as `workload-health`, `capacity`, and `observability`;
+- translate PlatformPilot's `warning` severity because the shared contract accepts only `critical`, `high`, `medium`, and `low`;
+- build the optional structured resource and runbook fields where appropriate;
+- keep stable IDs so repeated delivery can be deduplicated by CloudOps.
+
+### Inspect the AI router boundary
+
+```bash
+sed -n '1,280p' backend/routers/ai.py
+```
+
+The `/ai/summary` router is deliberately thin. It calls `generate_cluster_summary()` and translates known service failures into HTTP responses: unreachable Prometheus becomes `503`, an invalid Prometheus query becomes `502`, and unexpected failures become a generic `500` without exposing internal details.
+
+CloudOps delivery should follow the same separation:
+
+```text
+dedicated CloudOps router
+    -> finding builder / CloudOps sender service
+        -> authenticated CloudOps HTTP endpoint
+```
+
+The existing `GET /ai/summary` route should remain read-only. Delivery must be an intentional `POST` operation so viewing or refreshing AI insights does not cause external side effects.
+
+### Discover the Python test baseline
+
+```bash
+find . -maxdepth 4 -type f \( -name "test_*.py" -o -name "*_test.py" -o -name "pytest.ini" -o -name "pyproject.toml" \) | sort
+```
+
+The command produced no paths. PlatformPilot currently has no discoverable Python tests and no pytest configuration. This is not a command failure; it establishes that the CloudOps sender work must introduce a small Python testing foundation.
+
+The sender tests should mock the outbound HTTP call so they can verify successful delivery, missing configuration, authentication rejection, contract rejection, timeout, and connection failure without contacting CloudOps, Kubernetes, Prometheus, or AWS.
+
+### Inspect Python ignore rules
+
+```bash
+sed -n '1,220p' backend/.gitignore
+```
+
+The backend ignores Python bytecode caches, a `venv/` virtual environment, `.env`, macOS and VS Code files. Because this `.gitignore` is inside `backend/`, its `venv/` rule applies to `backend/venv/`, matching the setup documented in the README.
+
+The apparent `**pycache**/` text in the conversation is Markdown rendering of the standard `__pycache__/` pattern. Pytest-specific `.pytest_cache/` and coverage outputs are not yet listed and should be added when the test foundation is introduced.
+
+### Confirm the PlatformPilot Python runtime
+
+```bash
+python3 --version
+```
+
+Result:
+
+```text
+Python 3.11.14
+```
+
+Python 3.11 supports the modern built-in generic type annotations already used throughout the backend. A project-local virtual environment will isolate PlatformPilot's packages from the macOS system and other Python projects.
+
+### Create and verify the virtual environment
+
+```bash
+python3 -m venv backend/venv
+source backend/venv/bin/activate
+which python
+python --version
+```
+
+Results:
+
+```text
+/Users/olawaleazeez/Engineering/Handbooks/platform-pilot/backend/venv/bin/python
+Python 3.11.14
+```
+
+The `(venv)` prompt and interpreter path prove that subsequent Python and pip commands use PlatformPilot's isolated environment rather than a global Python installation.
+
+### Install and verify existing backend dependencies
+
+```bash
+python -m pip install -r backend/requirements.txt
+python -m pip check
+```
+
+All pinned FastAPI, Pydantic, Kubernetes, Prometheus HTTP, and supporting packages installed successfully inside the virtual environment. `pip check` reported:
+
+```text
+No broken requirements found.
+```
+
+This is the clean dependency baseline before introducing test tooling. The pip upgrade notice is informational and does not require an upgrade for this work.
+
+### Install the Python test runner
+
+```bash
+python -m pip install pytest
+python -m pytest --version
+```
+
+Result:
+
+```text
+pytest 9.1.1
+```
+
+Pytest and its supporting packages were installed only inside `backend/venv`. Using `python -m pytest` guarantees that the test runner belongs to the same active Python interpreter as PlatformPilot's installed backend dependencies.
+
+The installed version should now be recorded in a development requirements file so a fresh clone can recreate the same test environment.
+
+### Debug a file created in the wrong repository
+
+The verification command failed:
+
+```bash
+sed -n '1,80p' backend/requirements-dev.txt
+```
+
+Error:
+
+```text
+sed: backend/requirements-dev.txt: No such file or directory
+```
+
+The terminal was correctly located in `platform-pilot`, but VS Code's Explorer was still showing `cloudops-command-center`. A filesystem search located the new file at:
+
+```text
+/Users/olawaleazeez/Engineering/Handbooks/cloudops-command-center/backend/requirements-dev.txt
+```
+
+Git confirmed that this was an untracked accidental file, and the accidental `backend` directory contained no other files. This is a real multi-repository debugging lesson: the terminal's current directory and the editor's open workspace are independent. Always verify both the terminal prompt or `pwd` and the Explorer root before creating a file.
+
+The accidental file and its now-empty directory were removed, and `pwd` confirmed the intended repository:
+
+```text
+/Users/olawaleazeez/Engineering/Handbooks/platform-pilot
+```
+
+Running `code .` then produced:
+
+```text
+zsh: command not found: code
+```
+
+This is not a PlatformPilot or Python failure. It means VS Code's optional `code` shell launcher has not been installed in the terminal `PATH`. The repository can be opened through VS Code's **File → Open Folder** interface, or the launcher can later be installed through the VS Code Command Palette.
+
+### Create reproducible development requirements in the correct repository
+
+After opening the `platform-pilot` folder in VS Code, `backend/requirements-dev.txt` was created with:
+
+```text
+-r requirements.txt
+pytest==9.1.1
+```
+
+The verification command found the file in the correct repository. zsh displayed `%` immediately after the final version because the file did not yet have a terminating newline. Opening a new VS Code workspace also created a fresh terminal whose prompt no longer showed `(venv)`, so the existing virtual environment must be reactivated before further Python commands.
+
+The environment was reactivated successfully:
+
+```bash
+source backend/venv/bin/activate
+python -m pytest --version
+```
+
+The prompt returned to `(venv)` and pytest reported version `9.1.1`. The terminal still displayed `%` after the final requirements line, confirming that the missing end-of-file newline still needed to be saved in the editor.
+
+### Debug configuration text pasted into the shell
+
+After creating `backend/tests`, the intended `pytest.ini` contents were pasted directly into zsh. The shell returned:
+
+```text
+zsh: no matches found: [pytest]
+```
+
+`[pytest]` is INI file syntax, but zsh interpreted the square brackets as a filename glob pattern. The correct workflow is to use `touch pytest.ini` to create the file in the repository root, then place the INI text inside that file using the editor. This distinguishes shell commands from file contents.
+
+The root `pytest.ini` was then created successfully with:
+
+```ini
+[pytest]
+pythonpath = backend
+testpaths = backend/tests
+addopts = -ra
+```
+
+This adds `backend` to Python's import path, restricts test discovery to `backend/tests`, and requests a useful short summary for non-passing test outcomes. zsh displayed `%` after the final line because this new file also lacked a terminating newline; this does not change the INI meaning but should be cleaned up in the editor.
+
+### Verify the empty pytest baseline
+
+```bash
+python -m pytest
+echo $?
+```
+
+Pytest identified the PlatformPilot repository root, loaded `pytest.ini`, selected `backend/tests`, and collected zero items. It returned exit code `5`.
+
+Exit code `5` means **no tests were collected**. It does not indicate an invalid pytest installation or broken configuration. Adding the first discoverable `test_*.py` file with a `test_*` function should change the result to a passing test run and exit code `0`.
+
+### Add and run the first PlatformPilot Python test
+
+```bash
+touch backend/tests/test_config.py
+python -m pytest
+```
+
+The first test imports `APP_NAME` and `APP_VERSION` from `core.config` and verifies PlatformPilot's identity. Result:
+
+```text
+collected 1 item
+backend/tests/test_config.py .
+1 passed
+```
+
+This proves that pytest discovers `test_*.py`, the configured `backend` Python path resolves application packages, and a successful suite returns exit code `0` instead of the empty-suite code `5`.
+
+### Inspect the PlatformPilot test-foundation changes
+
+```bash
+git status -sb
+```
+
+Git reported only the intended untracked paths:
+
+```text
+?? backend/requirements-dev.txt
+?? backend/tests/
+?? pytest.ini
+```
+
+The virtual environment and pytest cache did not appear, confirming that generated local state is not being mixed with source changes. The repository is ready for a test-driven CloudOps configuration step.
+
+### Start the CloudOps configuration with a failing test
+
+The configuration test was extended to expect a local CloudOps findings URL, a ten-second timeout, and no default ingestion token. Running:
+
+```bash
+python -m pytest
+```
+
+produced:
+
+```text
+1 failed, 1 passed
+AttributeError: module 'core.config' has no attribute 'CLOUDOPS_FINDINGS_URL'
+```
+
+This is the intended TDD **red** stage. The existing PlatformPilot identity behaviour still passes, while the new test correctly detects that the CloudOps configuration has not been implemented. Pytest stops the new test at its first missing attribute, so later assertions will be evaluated after the URL setting exists.
+
+### Implement CloudOps sender configuration and reach green
+
+`backend/core/config.py` was extended with:
+
+- `CLOUDOPS_FINDINGS_URL`, defaulting to the local CloudOps ingestion endpoint;
+- `CLOUDOPS_TIMEOUT_SECONDS`, defaulting to ten seconds;
+- `CLOUDOPS_INGEST_TOKEN`, read only from the environment with no source-code secret default.
+
+Running the same suite again produced:
+
+```text
+collected 2 items
+2 passed
+```
+
+This is the TDD **green** stage. The original identity test remains intact, and the new safe-local-default test now passes. The URL and timeout are convenient local defaults, while the credential remains absent until explicitly supplied by the runtime environment.
+
+### Inspect the first PlatformPilot checkpoint
+
+```bash
+git status -sb
+git diff --check
+```
+
+The feature branch contained one modified configuration module and the three intentional untracked test-foundation paths:
+
+```text
+M  backend/core/config.py
+?? backend/requirements-dev.txt
+?? backend/tests/
+?? pytest.ini
+```
+
+`git diff --check` printed nothing, indicating no whitespace errors in the already tracked diff. Because normal `git diff` does not include untracked file contents, the same check must be run with `--cached` after explicitly staging the new files.
+
+The four intended paths were staged explicitly. `git diff --cached --check` printed nothing, and the cached stat showed 33 inserted lines across `core/config.py`, `requirements-dev.txt`, `test_config.py`, and `pytest.ini`. Explicit paths prevented unrelated files from entering the checkpoint.
+
+### Commit the PlatformPilot sender foundation
+
+```bash
+git commit -m "feat: configure CloudOps sender foundation"
+git status -sb
+git log -1 --oneline --decorate
+```
+
+Commit created:
+
+```text
+d4463a3 feat: configure CloudOps sender foundation
+```
+
+The branch returned clean. This checkpoint preserves the virtual-environment documentation, reproducible pytest dependency, discovery configuration, safe CloudOps settings, and two passing tests before outbound HTTP behaviour is introduced.
+
+### Start the outbound sender with a mocked failing test
+
+```bash
+touch backend/services/cloudops_service.py
+touch backend/tests/test_cloudops_service.py
+python -m pytest backend/tests/test_cloudops_service.py
+```
+
+The test replaces `requests.post` with a local fake that captures the URL, JSON body, authorization header, and timeout. Therefore, no request was sent to CloudOps or any other external system.
+
+Result:
+
+```text
+1 failed
+AttributeError: module 'services.cloudops_service' has no attribute 'send_operational_finding'
+```
+
+This is the expected sender TDD red stage. Python imported the new service module successfully, then the test proved that the required transport function had not yet been implemented.
+
+### Implement and verify the mocked happy path
+
+`send_operational_finding()` was implemented with `requests.post`, the configured URL and timeout, a bearer header, JSON request data, `raise_for_status()`, and a response-object type check.
+
+```bash
+python -m pytest backend/tests/test_cloudops_service.py
+```
+
+Result:
+
+```text
+1 passed
+```
+
+The successful request was entirely mocked. The test proves how the request would be constructed but sends no network traffic. The minimal implementation still needs a security guard because an absent environment token would currently produce `Authorization: Bearer None`.
+
+### Add a failing missing-token security test
+
+The sender suite was extended with a test that sets the ingestion token to `None` and replaces `requests.post` with a trap that fails if HTTP is attempted.
+
+```bash
+python -m pytest backend/tests/test_cloudops_service.py
+```
+
+Result:
+
+```text
+1 failed, 1 passed
+AttributeError: module 'services.cloudops_service' has no attribute 'CloudOpsConfigurationError'
+```
+
+This is the expected red stage. The authenticated happy path remains green, while the service still lacks its explicit configuration exception and pre-request credential guard.
+
+### Reject missing credentials before HTTP
+
+`CloudOpsError` and `CloudOpsConfigurationError` were added. The sender normalizes the configured token with `strip()`, rejects a missing or whitespace-only value, and only then constructs the request.
+
+Result:
+
+```text
+2 passed
+```
+
+The HTTP trap did not fire, proving that absent credentials stop delivery before network access. This prevents the unsafe `Authorization: Bearer None` behaviour.
+
+### Debug a Python indentation error while adding the timeout test
+
+Running the expanded sender suite stopped during test collection with:
+
+```text
+IndentationError: expected an indented block after function definition
+```
+
+Numbered source inspection showed that the new timeout test definition began with eight spaces at line 115, placing it inside the preceding test's `with pytest.raises(...)` block. Its parameter and body then used indentation that did not match that nested definition.
+
+Python uses indentation as syntax. Top-level pytest test functions must begin at column zero, their parameters align within the definition, and their body is indented four spaces. Because parsing failed, no test—including the previously passing ones—could be collected or executed.
+
+After moving the timeout test back to column zero, pytest collected all three tests. Result:
+
+```text
+1 failed, 2 passed
+AttributeError: module 'services.cloudops_service' has no attribute 'CloudOpsConnectionError'
+```
+
+This is the intended timeout-test red stage. The syntax is now valid, the existing behaviours remain green, and only the missing PlatformPilot-specific timeout translation remains to implement.
+
+### Translate timeout and connection failures
+
+`CloudOpsConnectionError` was added, and the HTTP call was wrapped with ordered handlers for `requests.Timeout`, `requests.ConnectionError`, and the broader `requests.RequestException`.
+
+Result:
+
+```text
+3 passed
+```
+
+The timeout test is instantaneous because the mock raises locally. `raise ... from exc` keeps the original low-level cause available for debugging while callers receive a stable, controlled PlatformPilot exception message.
+
+### Add a failing CloudOps authentication-response test
+
+A fake HTTP response with status `401` was returned by the mocked `requests.post`. The suite expected a dedicated `CloudOpsAuthenticationError`.
+
+Result:
+
+```text
+1 failed, 3 passed
+AttributeError: module 'services.cloudops_service' has no attribute 'CloudOpsAuthenticationError'
+```
+
+No real token or network request was used. The red test proves that raw HTTP authentication failures still need translation into a stable PlatformPilot service error.
+
+### Translate CloudOps authentication responses
+
+`CloudOpsAuthenticationError` was added. The sender checks response status `401` and `403` before calling the generic `raise_for_status()` handler.
+
+Result:
+
+```text
+4 passed
+```
+
+This preserves the operational meaning of an invalid or forbidden service credential rather than exposing a generic `requests.HTTPError`. The response remains simulated and contains no real secret.
+
+### Add a failing contract-rejection test
+
+A mocked `422 Unprocessable Entity` response included two field-level validation messages. The test required a `CloudOpsValidationError` that retains those messages for debugging.
+
+Result:
+
+```text
+1 failed, 4 passed
+AttributeError: module 'services.cloudops_service' has no attribute 'CloudOpsValidationError'
+```
+
+This red stage distinguishes transport success from contract acceptance: CloudOps can be reachable and authenticated while still rejecting a malformed operational finding.
+
+### Preserve CloudOps contract errors
+
+`CloudOpsValidationError` was implemented with a `validation_errors` attribute. The sender handles status `422`, safely parses `validationErrors` when present, converts each detail to text, and still raises the same exception with an empty list if the error body is not valid JSON.
+
+Result:
+
+```text
+5 passed
+```
+
+PlatformPilot can now distinguish local configuration failure, connection timeout, authentication rejection, contract rejection, and successful acceptance without making real network requests in the test suite.
+
+### Add a failing upstream-server-response test
+
+A fake response with status `500` was configured to raise `requests.HTTPError`. The test expects a stable `CloudOpsResponseError` containing the status code instead of leaking the raw requests-layer exception.
+
+The new test reached the intended red state because `CloudOpsResponseError` had not yet been implemented. Special authentication and validation statuses remain separate from this generic unsuccessful-response path.
+
+### Translate generic HTTP and malformed-response failures
+
+`CloudOpsResponseError` was added. After the special `401/403` and `422` branches, other unsuccessful statuses are translated from `requests.HTTPError` with their HTTP status. Successful responses are also guarded against invalid JSON and non-object JSON bodies.
+
+Result:
+
+```text
+6 passed
+```
+
+The sender now has controlled exceptions for configuration, connectivity, authentication, contract validation, and unusable upstream responses. All six sender tests remain isolated from the network.
+
+### Run the full PlatformPilot Python regression suite
+
+```bash
+python -m pytest
+```
+
+Result:
+
+```text
+8 passed
+```
+
+The full suite combines two configuration tests with six CloudOps sender tests. Passing together confirms that the new service behaviour did not regress the sender configuration foundation.
+
+### Inspect the new sender files before staging
+
+```bash
+git status -sb
+git diff --check
+git diff --stat
+```
+
+The status output showed:
+
+```text
+?? backend/services/cloudops_service.py
+?? backend/tests/test_cloudops_service.py
+```
+
+`??` means the files are new and untracked. `git diff --stat` did not list them because the normal working-tree diff only compares files Git already tracks. After adding the files to Git's staging area, `git diff --cached --stat` can summarize them. `git diff --check` produced no errors, confirming that the new files contained no whitespace problems detected by Git.
+
+### Commit the resilient PlatformPilot sender
+
+```bash
+git add \
+  backend/services/cloudops_service.py \
+  backend/tests/test_cloudops_service.py
+git diff --cached --check
+git diff --cached --stat
+git commit -m "feat: add resilient CloudOps findings client"
+git status -sb
+git log -1 --oneline --decorate
+```
+
+Result:
+
+```text
+f3d5b9f feat: add resilient CloudOps findings client
+2 files changed, 433 insertions(+)
+```
+
+The clean short status confirmed that the commit captured both new files. This checkpoint provides a tested outbound HTTP boundary: PlatformPilot can authenticate to CloudOps, send JSON with a timeout, and translate configuration, connectivity, authentication, validation, server-response, and malformed-response failures into controlled application exceptions.
+
+### Start the incident-to-finding transformer with a red test
+
+```bash
+touch backend/tests/test_operational_finding_service.py
+python -m pytest backend/tests/test_operational_finding_service.py
+```
+
+Initial result:
+
+```text
+ModuleNotFoundError: No module named 'services.operational_finding_service'
+```
+
+This was an intentional test-driven-development failure. Pytest successfully discovered the test and tried to import the requested transformer. Collection stopped because the implementation module had not been created yet. This is the **red** stage: the test describes the required behaviour before application code exists.
+
+### Implement the first operational-finding transformation
+
+```bash
+touch backend/services/operational_finding_service.py
+python -m pytest backend/tests/test_operational_finding_service.py
+```
+
+Result:
+
+```text
+1 passed
+```
+
+The implementation converts a PlatformPilot Kubernetes incident into the shared CloudOps contract. It supplies contract metadata, preserves the incident summary and evidence, describes the Kubernetes resource, assigns an investigation runbook, and keeps `approvalRequired` set to `True`. This is the **green** stage: the smallest implementation now satisfies the first required behaviour.
+
+### Expose the Prometheus mapping gap
+
+A second test supplied a PlatformPilot Prometheus incident with severity `warning`. The CloudOps contract does not allow `warning`; it permits only `critical`, `high`, `medium`, and `low`. The test also required Prometheus-specific service, category, and runbook values without inventing a Kubernetes Pod resource.
+
+The suite produced one passing Kubernetes test and one failing Prometheus test. This failure demonstrated that the first transformer was too narrowly coupled to Kubernetes: it marked every incident as `workload-health`, created a Pod resource, selected the Kubernetes runbook, and passed `warning` through unchanged. The next implementation makes these choices based on the incident source.
+
+### Make the transformer source-aware
+
+The transformer introduced `normalize_severity()` and source-specific mappings. PlatformPilot `warning` now becomes CloudOps `medium`; Kubernetes incidents retain workload resource context; Prometheus incidents become observability findings without a fabricated Pod; and unknown sources receive a safe generic mapping.
+
+```bash
+python -m pytest backend/tests/test_operational_finding_service.py
+```
+
+Result:
+
+```text
+2 passed
+```
+
+This separates transport from translation: `cloudops_service.py` is responsible for reliable HTTP communication, while `operational_finding_service.py` is responsible for producing data that satisfies the shared contract.
+
+### Debug why a newly added test was not collected
+
+After adding a third test, pytest still reported `collected 2 items`. The following command checked which top-level tests existed in the intended test file:
+
+```bash
+grep -n '^def test_' backend/tests/test_operational_finding_service.py
+```
+
+Only two tests appeared. A repository search then located the missing function:
+
+```bash
+grep -RIn --exclude-dir=venv --exclude-dir=.git \
+  'test_builds_node_resource_for_node_incident' backend
+```
+
+The third test had accidentally been pasted into `backend/services/operational_finding_service.py` instead of `backend/tests/test_operational_finding_service.py`. Pytest was configured with `testpaths = backend/tests`, so it correctly ignored a test-shaped function inside an application service module. The fix was to move the test into the test file and save both files.
+
+### Distinguish Kubernetes Pods from Nodes
+
+The third transformer test used a real PlatformPilot node incident. It required a `Node` resource and the `kubernetes-node-investigation` runbook instead of treating every Kubernetes incident as a namespaced Pod.
+
+During the implementation, Python stopped at import time with:
+
+```text
+IndentationError: unexpected indent
+```
+
+Line 75 had eight leading spaces even though it began a new `if` block inside the function and required four. The statements inside that block correctly required eight spaces. Moving only the `if source_key == "kubernetes":` line left by one indentation level restored valid Python structure.
+
+```bash
+python -m pytest backend/tests/test_operational_finding_service.py
+```
+
+Result:
+
+```text
+3 passed
+```
+
+The transformer now produces distinct mappings for Kubernetes Pods, cluster-scoped Kubernetes Nodes, and Prometheus observability incidents.
+
+### Run the full suite after adding the transformer
+
+```bash
+python -m pytest
+```
+
+Result:
+
+```text
+collected 11 items
+11 passed
+```
+
+The complete regression suite now contains two configuration tests, six resilient HTTP-client tests, and three operational-finding transformer tests. Passing all eleven together confirms that the new translation layer did not break configuration or transport behaviour.
+
+### Commit the operational-finding transformer
+
+```bash
+git add \
+  backend/services/operational_finding_service.py \
+  backend/tests/test_operational_finding_service.py
+git diff --cached --check
+git diff --cached --stat
+git commit -m "feat: transform PlatformPilot incidents into CloudOps findings"
+git status -sb
+git log -1 --oneline --decorate
+```
+
+Result:
+
+```text
+e6c51e6 feat: transform PlatformPilot incidents into CloudOps findings
+2 files changed, 248 insertions(+)
+```
+
+The clean status confirmed a complete checkpoint. PlatformPilot now has separate layers for translating its internal incidents into the shared contract and for sending those findings reliably to CloudOps.
+
+### Start the CloudOps export orchestrator with a red test
+
+The transformer and HTTP client worked independently, but no application service connected them. A new test mocked both boundaries and described the intended flow: accept an internal incident, build the shared finding, send that exact finding, and return both the generated payload and CloudOps response.
+
+```bash
+touch backend/tests/test_cloudops_export_service.py
+python -m pytest backend/tests/test_cloudops_export_service.py
+```
+
+Initial result:
+
+```text
+ImportError: cannot import name 'cloudops_export_service' from 'services'
+```
+
+This intentional failure confirmed that pytest collected the new requirement but the orchestration module did not yet exist. The test used mocks, so it exercises service coordination without making a real network request.
+
+### Connect transformation to transport
+
+`backend/services/cloudops_export_service.py` introduced `export_incident()`. It passes the incident and operational context to the transformer, sends the exact returned finding through the resilient CloudOps client, and returns both the outgoing finding and incoming CloudOps response.
+
+```bash
+python -m pytest backend/tests/test_cloudops_export_service.py
+```
+
+Result:
+
+```text
+1 passed
+```
+
+This orchestration service keeps responsibilities separated: mapping rules remain in the transformer, HTTP and error handling remain in the client, and the export service controls their order. Because the test mocks both collaborators, it validates the workflow without making a real HTTP request.
+
+### Verify the complete internal export pipeline
+
+```bash
+python -m pytest
+```
+
+Result:
+
+```text
+collected 12 items
+12 passed
+```
+
+The suite now covers configuration, contract transformation, resilient HTTP transport, and export orchestration. PlatformPilot's internal pipeline is stable before it is exposed through a FastAPI endpoint.
+
+### Define deployment context with a red configuration test
+
+The upcoming FastAPI export endpoint needs to identify the environment and Kubernetes cluster that produced each finding. A new configuration test required safe local defaults:
+
+```text
+PLATFORM_ENVIRONMENT = local
+KUBERNETES_CLUSTER_NAME = docker-desktop
+```
+
+```bash
+python -m pytest backend/tests/test_config.py
+```
+
+Initial result:
+
+```text
+2 passed, 1 failed
+AttributeError: module 'core.config' has no attribute 'PLATFORM_ENVIRONMENT'
+```
+
+This intentional failure proves that deployment context was not silently hardcoded elsewhere and that the configuration contract must be implemented explicitly.
+
+### Externalize PlatformPilot environment and cluster identity
+
+`backend/core/config.py` added `PLATFORM_ENVIRONMENT` and `KUBERNETES_CLUSTER_NAME`, with safe local defaults of `local` and `docker-desktop`. Production deployments can override both through environment variables without editing application code.
+
+```bash
+python -m pytest backend/tests/test_config.py
+```
+
+Result:
+
+```text
+3 passed
+```
+
+This follows externalized-configuration practice: source code defines safe behaviour, while each runtime environment supplies its own identity.
+
+### Specify the FastAPI CloudOps export endpoint with a red test
+
+A router test described the endpoint workflow while mocking cluster analysis and export orchestration. It required the endpoint to collect current incidents, assign an identifier and UTC observation time, attach configured environment and cluster context, export every incident, and return counts plus results.
+
+```bash
+touch backend/tests/test_cloudops_router.py
+python -m pytest backend/tests/test_cloudops_router.py
+```
+
+Initial result:
+
+```text
+ImportError: cannot import name 'cloudops' from 'routers'
+```
+
+The failure was expected because `backend/routers/cloudops.py` did not yet exist. The external Kubernetes, Prometheus, and CloudOps boundaries remained mocked, keeping the endpoint test fast and deterministic.
+
+### Implement the CloudOps export router
+
+`backend/routers/cloudops.py` added `POST /cloudops/findings`. It obtains the current PlatformPilot cluster summary, assigns each incident a unique finding identifier and UTC timestamp, attaches configured environment and cluster context, and delegates each export to the tested orchestration service.
+
+```bash
+python -m pytest backend/tests/test_cloudops_router.py
+```
+
+Result:
+
+```text
+1 passed
+```
+
+At this stage the router's function works in isolation, but the main FastAPI application has not yet registered it. A correct router module is not reachable over HTTP until `app.include_router(...)` connects it to the application.
+
+### Debug the first route-registration test
+
+The new registration test initially failed with:
+
+```text
+AttributeError: '_IncludedRouter' object has no attribute 'path'
+```
+
+The test assumed every object in `app.routes` exposed a `.path`. In this application/version combination, FastAPI also stores an internal `_IncludedRouter` object in that collection. The test therefore crashed while building its set, before it could determine whether `/cloudops/findings` was registered. The test must filter with `hasattr(route, "path")` so it inspects only route objects.
+
+After filtering non-route objects, the test reached the intended assertion and failed because `/cloudops/findings` was absent from the registered path set. This is the correct red-stage evidence: the router implementation exists and works, but the main FastAPI application has not included it.
+
+After adding the import and `app.include_router(cloudops_router)`, the same test still reported the path as absent. Inspection showed the code was saved correctly. In FastAPI 0.139, included routers are represented lazily as internal `_IncludedRouter` objects inside `app.routes`; their child paths are expanded when FastAPI builds its OpenAPI schema. The schema contained `/cloudops/findings`, proving registration succeeded. The version-compatible assertion therefore inspects `app.openapi()["paths"]` rather than assuming every included endpoint appears directly in `app.routes`.
+
+```bash
+python -m pytest backend/tests/test_cloudops_router.py
+```
+
+Result:
+
+```text
+2 passed
+```
+
+The focused tests now verify both the endpoint workflow and its presence in the public FastAPI/OpenAPI route contract.
+
+### Verify the complete FastAPI export integration
+
+```bash
+python -m pytest
+```
+
+Result:
+
+```text
+collected 15 items
+15 passed
+```
+
+The suite now covers three configuration behaviours, six resilient HTTP-client behaviours, three contract transformations, one export orchestration workflow, and two FastAPI router behaviours. PlatformPilot can now analyze incidents and expose an explicitly invoked POST endpoint that publishes them through the tested CloudOps pipeline.
+
+### Commit the PlatformPilot FastAPI export endpoint
+
+```bash
+git add \
+  backend/app.py \
+  backend/core/config.py \
+  backend/routers/cloudops.py \
+  backend/services/cloudops_export_service.py \
+  backend/tests/test_cloudops_export_service.py \
+  backend/tests/test_cloudops_router.py \
+  backend/tests/test_config.py
+git diff --cached --check
+git diff --cached --stat
+git commit -m "feat: expose CloudOps findings export endpoint"
+git status -sb
+git log -1 --oneline --decorate
+```
+
+Result:
+
+```text
+85538d4 feat: expose CloudOps findings export endpoint
+7 files changed, 294 insertions(+), 2 deletions(-)
+```
+
+The working tree was clean after the commit. This checkpoint makes the integration intentionally triggerable through `POST /cloudops/findings`; it does not add hidden network side effects to PlatformPilot's existing read-only endpoints.
+
+### Start CloudOps for a real local integration test
+
+```bash
+cd ~/Engineering/Handbooks/cloudops-command-center
+export PLATFORM_PILOT_INGEST_TOKEN=local-development-only-token
+npm run dev
+```
+
+Result:
+
+```text
+Local: http://localhost:3000
+Ready
+```
+
+The exported environment variable configures the receiver's expected bearer token for that terminal process. The development server must remain running while PlatformPilot sends requests. The example token is local-only and is not committed to Git.
+
+### Start PlatformPilot with the matching integration configuration
+
+```bash
+cd ~/Engineering/Handbooks/platform-pilot
+source backend/venv/bin/activate
+export CLOUDOPS_INGEST_TOKEN=local-development-only-token
+export CLOUDOPS_FINDINGS_URL=http://127.0.0.1:3000/api/platform-pilot/findings
+export PLATFORM_ENVIRONMENT=local
+export KUBERNETES_CLUSTER_NAME=docker-desktop
+python -m uvicorn app:app \
+  --reload \
+  --app-dir backend \
+  --host 127.0.0.1 \
+  --port 8000
+```
+
+Result:
+
+```text
+Uvicorn running on http://127.0.0.1:8000
+Application startup complete
+```
+
+`--app-dir backend` tells Uvicorn where `app.py` and the backend import roots live. Port 8000 serves PlatformPilot while port 3000 continues serving CloudOps. The two local bearer-token values match exactly.
+
+### Establish an independent health baseline
+
+```bash
+curl -sS \
+  -o /tmp/cloudops-health.json \
+  -w "CloudOps HTTP %{http_code}\n" \
+  http://127.0.0.1:3000/api/platform-state
+
+curl -sS \
+  -o /tmp/platform-pilot-health.json \
+  -w "PlatformPilot HTTP %{http_code}\n" \
+  http://127.0.0.1:8000/health
+
+python3 -m json.tool /tmp/platform-pilot-health.json
+```
+
+Result: both services returned HTTP 200 and PlatformPilot reported itself healthy. Testing each process independently creates a baseline: a subsequent export failure is more likely to belong to cluster analysis, authentication, contract mapping, or inter-service communication rather than a stopped server or incorrect port.
+
+### First real export attempt: HTTP 500
+
+```bash
+curl -sS \
+  -o /tmp/platform-pilot-export.json \
+  -w "PlatformPilot export HTTP %{http_code}\n" \
+  -X POST \
+  http://127.0.0.1:8000/cloudops/findings
+
+python3 -m json.tool /tmp/platform-pilot-export.json
+```
+
+Result:
+
+```text
+PlatformPilot export HTTP 500
+Expecting value: line 1 column 1 (char 0)
+```
+
+The HTTP 500 came from PlatformPilot, not from curl. The second error came from attempting to parse a non-JSON or empty error body as JSON; it is a consequence, not the root cause. Because both services had already passed independent health checks, the next diagnostic source is the traceback in the running PlatformPilot/Uvicorn terminal.
+
+#### Root cause confirmed: Prometheus was not reachable
+
+The PlatformPilot/Uvicorn traceback showed this exception chain:
+
+```text
+ConnectionRefusedError: [Errno 61] Connection refused
+urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=9090)
+requests.exceptions.ConnectionError
+services.prometheus_service.PrometheusConnectionError:
+PlatformPilot could not connect to Prometheus. Confirm that the Prometheus
+port-forward is running on localhost:9090.
+```
+
+The request reached `POST /cloudops/findings`, but that route first called `generate_cluster_summary()`. The summary called `get_node_cpu_usage()`, which queried Prometheus at `127.0.0.1:9090`. Nothing was listening on that local port, so the connection was refused before PlatformPilot could build or send any findings to CloudOps.
+
+The `python3 -m json.tool` failure was secondary: PlatformPilot's unhandled exception produced an HTTP 500 response without a valid JSON body, so there was nothing valid for the JSON parser to decode.
+
+The local Kubernetes context was `docker-desktop`. Service discovery found the Prometheus service at:
+
+```text
+namespace: monitoring
+service: platformpilot-monitoring-k-prometheus
+port: 9090
+```
+
+The required local port-forward is:
+
+```bash
+kubectl port-forward \
+  -n monitoring \
+  service/platformpilot-monitoring-k-prometheus \
+  9090:9090
+```
+
+This command creates a temporary tunnel from the Mac's `127.0.0.1:9090` to the Prometheus service inside the Docker Desktop Kubernetes cluster. It must remain running while PlatformPilot queries Prometheus.
+
+#### Recovery verification: end-to-end export succeeded
+
+Prometheus readiness was checked before retrying the export:
+
+```bash
+curl -sS \
+  -o /tmp/prometheus-ready.txt \
+  -w "Prometheus HTTP %{http_code}\n" \
+  http://127.0.0.1:9090/-/ready
+
+cat /tmp/prometheus-ready.txt
+```
+
+Result:
+
+```text
+Prometheus HTTP 200
+Prometheus Server is Ready.
+```
+
+The real export was then retried:
+
+```bash
+curl -sS \
+  -o /tmp/platform-pilot-export.json \
+  -w "PlatformPilot export HTTP %{http_code}\n" \
+  -X POST \
+  http://127.0.0.1:8000/cloudops/findings
+
+python3 -m json.tool /tmp/platform-pilot-export.json
+```
+
+Result: `PlatformPilot export HTTP 200`. PlatformPilot detected one incident and CloudOps accepted one export.
+
+The real finding reported that four Prometheus scrape targets were unavailable. PlatformPilot normalized that observation into contract version `1.0`, assigned medium severity and 90% confidence, included the local Docker Desktop cluster context, and selected the `prometheus-target-investigation` runbook. CloudOps converted it into a `needs_approval` risk routed to the Platform Team and created a corresponding audit event.
+
+This proved the complete path:
+
+```text
+Prometheus metrics
+  -> PlatformPilot analysis
+  -> operational finding contract
+  -> authenticated HTTP request
+  -> CloudOps schema validation
+  -> approval-gated risk
+  -> audit event
+```
+
+The incident also demonstrated an important debugging principle: fix the earliest failing dependency first. The JSON parsing message was not the root problem; the Prometheus connection refusal was. Once the port-forward restored that dependency, the unchanged export request completed successfully.
+
+#### Investigating the four unavailable Prometheus targets
+
+The following PromQL query selected every scrape target whose latest `up` metric was zero:
+
+```bash
+curl -sS -G \
+  http://127.0.0.1:9090/api/v1/query \
+  --data-urlencode 'query=up == 0' \
+  | python3 -m json.tool
+```
+
+Prometheus returned four Docker Desktop control-plane targets:
+
+```text
+kube-proxy              172.18.0.4:10249
+kube-scheduler          172.18.0.4:10259
+kube-etcd               172.18.0.4:2381
+kube-controller-manager 172.18.0.4:10257
+```
+
+An `up` value of `0` means Prometheus could not successfully scrape the metrics endpoint. It does not, by itself, prove that the Kubernetes component or pod is stopped. The target may be running while its metrics port is unreachable, bound only to loopback, protected by TLS/authentication, or incorrectly described by its ServiceMonitor. The next diagnostic step is to inspect each target's `lastError` through Prometheus's targets API.
+
+Prometheus's active-target API reported `connection refused` for all four URLs. Kubernetes inspection then confirmed that every corresponding pod was `Running`, so this was not a control-plane outage.
+
+The pod startup configuration exposed the actual mismatch:
+
+```text
+kube-controller-manager --bind-address=127.0.0.1
+kube-scheduler          --bind-address=127.0.0.1
+etcd                    --listen-metrics-urls=http://127.0.0.1:2381
+kube-proxy              metricsBindAddress: ""
+```
+
+Prometheus was attempting to scrape the Docker Desktop node address `172.18.0.4`, but these metrics listeners were not accepting connections on that address. Therefore, the control-plane applications were healthy while the monitoring configuration for their metrics endpoints was incompatible with the local Docker Desktop cluster configuration.
+
+This distinguishes service health from observability health:
+
+```text
+Component pod running             = workload/process health
+Prometheus up metric equal to zero = metrics scrape health
+```
+
+A failed scrape can reduce visibility without stopping the component itself. The safe next step is to inspect the Helm release values that created these ServiceMonitors instead of editing Docker Desktop-managed static control-plane pods directly.
+
+Helm release discovery:
+
+```bash
+helm list -n monitoring
+```
+
+Result:
+
+```text
+release:   platformpilot-monitoring
+namespace: monitoring
+revision:  1
+status:    deployed
+chart:     kube-prometheus-stack-87.15.1
+app:       v0.92.1
+```
+
+This confirms that the Prometheus resources and control-plane ServiceMonitors are managed by Helm. Any durable monitoring adjustment should be expressed through Helm values rather than by manually editing generated Services, ServiceMonitors, or Docker Desktop control-plane pods.
+
+The user-supplied release values were inspected with:
+
+```bash
+helm get values \
+  platformpilot-monitoring \
+  -n monitoring \
+  -o yaml
+```
+
+Result: `null`. This means the release was installed without custom override values. The chart therefore used its default configuration, including control-plane ServiceMonitors that do not automatically match Docker Desktop's loopback-only metrics listeners. The next step is to inspect the relevant sections of the fully computed chart values and then create an explicit, version-controlled local override.
+
+The fully computed values confirmed that all four incompatible monitors were enabled by default:
+
+```text
+kubeControllerManager.enabled:               true
+kubeControllerManager.serviceMonitor.enabled: true
+kubeEtcd.enabled:                            true
+kubeEtcd.serviceMonitor.enabled:              true
+kubeProxy.enabled:                           true
+kubeProxy.serviceMonitor.enabled:             true
+kubeScheduler.enabled:                       true
+kubeScheduler.serviceMonitor.enabled:         true
+```
+
+For this local Docker Desktop environment, the selected remediation is to disable those four unsupported control-plane scrape integrations through a version-controlled Helm values override. This removes false monitoring failures without modifying Docker Desktop-managed control-plane manifests or exposing sensitive control-plane metrics listeners on broader network interfaces.
+
+Tradeoff: Prometheus will stop reporting metrics for those four components in this local environment. Kubernetes workload, node-exporter, kube-state-metrics, API server, CoreDNS, and other compatible targets remain monitored. A production cluster should instead expose and secure the intended control-plane metrics endpoints according to that cluster's architecture.
+
+The local override was created in the PlatformPilot repository at:
+
+```text
+infrastructure/monitoring-values-docker-desktop.yaml
+```
+
+It sets `enabled: false` for `kubeControllerManager`, `kubeEtcd`, `kubeProxy`, and `kubeScheduler`. Numbered-line inspection confirmed that the YAML contained no accidental leading quote or other unexpected text before proceeding to Helm validation.
+
+The override was validated with a non-mutating Helm upgrade dry run. Helm returned exit code `0`, confirming that the release name, chart version, namespace, and YAML values were valid. Helm also warned that bare `--dry-run` is deprecated; future commands should use `--dry-run=client`.
+
+The chart printed `kube-prometheus-stack has been installed` in its NOTES section. This was generic chart output and did not mean the dry run changed the cluster. A dry run only renders and validates the proposed release.
+
+Before the real upgrade, revision `1` remains the rollback point. If the applied revision causes a problem, the release can be restored with:
+
+```bash
+helm rollback platformpilot-monitoring 1 -n monitoring --wait
+```
+
+After the real upgrade, `helm get values` confirmed that all four local overrides were stored in the release with `enabled: false`.
+
+The first post-upgrade Prometheus query failed with:
+
+```text
+curl: (7) Failed to connect to 127.0.0.1 port 9090
+Expecting value: line 1 column 1 (char 0)
+```
+
+This was a local access-path failure, not evidence that the Helm remediation failed. The temporary `kubectl port-forward` process was no longer listening on the Mac's port `9090`. A port-forward exists only while its terminal process remains alive and can also terminate when the selected Kubernetes pod changes. As before, the JSON parser error was secondary because curl produced no JSON document.
+
+The port-forward was restarted in a dedicated terminal:
+
+```bash
+kubectl port-forward \
+  -n monitoring \
+  service/platformpilot-monitoring-k-prometheus \
+  9090:9090
+```
+
+Prometheus readiness was then verified from a separate terminal:
+
+```bash
+curl -sS \
+  -o /tmp/prometheus-ready.txt \
+  -w "Prometheus HTTP %{http_code}\n" \
+  http://127.0.0.1:9090/-/ready
+
+cat /tmp/prometheus-ready.txt
+```
+
+Result:
+
+```text
+Prometheus HTTP 200
+Prometheus Server is Ready.
+```
+
+This confirmed that the earlier error was caused by the missing local port-forward rather than a failed Prometheus server or failed Helm upgrade.
+
+The Prometheus expression used to verify the monitoring remediation was:
+
+```bash
+curl -sS -G \
+  http://127.0.0.1:9090/api/v1/query \
+  --data-urlencode 'query=up == 0' \
+  | python3 -m json.tool
+```
+
+Verified result:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": []
+  }
+}
+```
+
+`result: []` means Prometheus found no active scrape targets whose `up` metric was zero. The four Docker Desktop control-plane targets were no longer generating false unavailable-target signals after their incompatible monitors were disabled. This completed the direct Prometheus-level verification of the Helm remediation.
+
+The first end-to-end export attempt after the monitoring fix returned:
+
+```text
+curl: (7) Failed to connect to 127.0.0.1 port 8000
+PlatformPilot export HTTP 000
+python3 -m json.tool: can't open /tmp/platform-pilot-export-after-fix.json
+```
+
+This was not a regression in the export code. The PlatformPilot Uvicorn process was no longer listening on local port `8000`. Curl uses `000` when it never receives an HTTP response, so this was a transport-level failure rather than an application HTTP status. Because curl could not connect, it did not create the requested response file; the later JSON-file error was therefore a secondary symptom. The correct recovery is to restart PlatformPilot with the required local integration environment variables, leave that server process running, and repeat the export from another terminal.
+
+PlatformPilot was restarted with its Python virtual environment and local integration configuration. The end-to-end export was then repeated:
+
+```bash
+curl -sS \
+  -o /tmp/platform-pilot-export-after-fix.json \
+  -w "PlatformPilot export HTTP %{http_code}\n" \
+  -X POST \
+  http://127.0.0.1:8000/cloudops/findings
+
+python3 -m json.tool \
+  /tmp/platform-pilot-export-after-fix.json
+```
+
+Final verified result:
+
+```text
+PlatformPilot export HTTP 200
+```
+
+```json
+{
+  "incidentCount": 0,
+  "exportedCount": 0,
+  "exports": []
+}
+```
+
+This completed the application-level verification. PlatformPilot successfully reached Prometheus, analyzed its current signals, found no unavailable targets, and therefore exported no false operational findings to CloudOps. `incidentCount: 0` demonstrates that the monitoring override removed the false input at its source; `exportedCount: 0` demonstrates that the integration correctly avoided creating unnecessary CloudOps risks. An empty export in this situation is a successful and desirable result, not a failure.
+
+Before committing the PlatformPilot monitoring override, the working tree was inspected:
+
+```bash
+git status -sb
+git diff --check
+git diff --stat
+```
+
+`git status -sb` showed only the intended untracked file:
+
+```text
+?? infrastructure/monitoring-values-docker-desktop.yaml
+```
+
+`git diff --check` produced no output, meaning no whitespace errors were found. `git diff --stat` also produced no output because regular `git diff` reports changes to tracked files and does not include a new untracked file until it is staged. After staging, `git diff --cached --stat` can be used to inspect it.
+
+The verified Docker Desktop monitoring override was committed in the PlatformPilot repository:
+
+```bash
+git add infrastructure/monitoring-values-docker-desktop.yaml
+git diff --cached --check
+git diff --cached --stat
+git commit -m "fix: disable unsupported Docker Desktop scrape targets"
+git status -sb
+git log -1 --oneline --decorate
+```
+
+Result:
+
+```text
+83a147f (HEAD -> codex/cloudops-finding-sender-v1) fix: disable unsupported Docker Desktop scrape targets
+```
+
+The commit added one 17-line environment-specific Helm values file. The final short status contained only the branch header, confirming that the PlatformPilot working tree was clean after the commit.
+
 ### Test service authentication independently
 
 ```bash
@@ -789,6 +2173,42 @@ HTTP 200
 ```
 
 The accepted response contained the external finding ID, internal risk ID, and accepted status. This proves that valid content alone is insufficient; the caller must also present the configured service credential.
+
+### Commit the authentication checkpoint
+
+```bash
+git commit -m "feat: secure PlatformPilot ingestion"
+```
+
+Commit created:
+
+```text
+eb9f0bd feat: secure PlatformPilot ingestion
+```
+
+This checkpoint contains fail-closed service authentication, timing-safe token comparison, route enforcement, configuration documentation, authentication tests, updated route tests, and live HTTP verification.
+
+---
+
+## Session 5 — Connect the PlatformPilot sender
+
+**Date:** 18 July 2026
+
+### Locate or clone PlatformPilot
+
+No local PlatformPilot repository was found under `~/Engineering`, so it was cloned beside CloudOps:
+
+```bash
+cd ~/Engineering/Handbooks
+git clone https://github.com/AZ1600/platform-pilot.git
+cd platform-pilot
+git status -sb
+git log -1 --oneline --decorate
+```
+
+The repository cloned successfully with a clean `main` branch at commit `ca710a5`.
+
+CloudOps and PlatformPilot remain separate Git repositories. They communicate through the versioned JSON contract and authenticated HTTP endpoint rather than sharing internal source code.
 
 The tests verify missing configuration, missing credentials, incorrect credentials, correct credentials, and case-insensitive handling of the Bearer authentication scheme. Test environment variables are restored after every test to prevent state leakage.
 
