@@ -2095,6 +2095,35 @@ Result:
 
 The commit added one 17-line environment-specific Helm values file. The final short status contained only the branch header, confirming that the PlatformPilot working tree was clean after the commit.
 
+## Publishing the integration for review
+
+The PlatformPilot feature branch was pushed and configured to track its remote branch:
+
+```bash
+cd ~/Engineering/Handbooks/platform-pilot
+git status -sb
+git push -u origin codex/cloudops-finding-sender-v1
+```
+
+The `-u` option records the upstream relationship. After the first push, later updates on this branch can be published with a shorter `git push` command.
+
+The CloudOps feature branch was published in the same way:
+
+```bash
+cd ~/Engineering/Handbooks/cloudops-command-center
+git status -sb
+git push -u origin codex/external-findings-v1
+```
+
+Draft pull requests were then created with GitHub CLI using `gh pr create`. A draft PR makes the work visible and reviewable without declaring that it is ready to merge.
+
+Created pull requests:
+
+- PlatformPilot PR #1: https://github.com/AZ1600/platform-pilot/pull/1
+- CloudOps Command Center PR #1: https://github.com/AZ1600/cloudops-command-center/pull/1
+
+The two PRs represent opposite sides of the same integration boundary. PlatformPilot produces, authenticates, and sends operational findings; CloudOps validates, deduplicates, stores, and converts them into approval-gated risks. Keeping the changes in separate repositories and PRs preserves clear ownership while the shared JSON contract keeps both applications compatible.
+
 ### Test service authentication independently
 
 ```bash
