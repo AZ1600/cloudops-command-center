@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "db:apply": "node scripts/apply-schema.mjs"
+    "db:apply": "node scripts/apply-schema.mjs",
+    "contracts:validate": "node scripts/validate-operational-finding.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.9",
@@ -23,6 +24,8 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "latest",
     "eslint-config-next": "latest",
     "typescript": "latest",

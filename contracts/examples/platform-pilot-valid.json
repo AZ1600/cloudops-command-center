@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "findingId": "platform-pilot-local-001",
+  "source": "platform-pilot",
+  "observedAt": "2026-07-18T18:45:00Z",
+  "environment": "local",
+  "cluster": "docker-desktop",
+  "namespace": "default",
+  "resource": {
+    "kind": "Pod",
+    "name": "worker-ingestion-abc123",
+    "container": "worker"
+  },
+  "service": "worker-ingestion",
+  "category": "workload-health",
+  "severity": "critical",
+  "confidence": 0.94,
+  "summary": "Worker pod is repeatedly restarting.",
+  "evidence": [
+    "Container worker is in CrashLoopBackOff.",
+    "Restart count increased from 4 to 7."
+  ],
+  "recommendedRunbook": "crash-loop-investigation",
+  "approvalRequired": true,
+  "correlationId": "incident-local-001"
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "findingId": "",
+  "source": "unknown-scanner",
+  "observedAt": "18 July sometime tonight",
+  "environment": "testing",
+  "resource": {
+    "kind": "Pod",
+    "name": "worker-ingestion-abc123"
+  },
+  "service": "worker-ingestion",
+  "category": "performance",
+  "severity": "urgent",
+  "confidence": 1.5,
+  "summary": "",
+  "evidence": [],
+  "approvalRequired": false,
+  "unexpectedField": "This property is not allowed"
+}

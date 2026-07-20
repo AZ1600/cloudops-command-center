@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudops.local/contracts/operational-finding/1.0",
+  "title": "Operational Finding",
+  "description": "Contract for sending evidence-based operational findings into CloudOps Command Center.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "findingId",
+    "source",
+    "observedAt",
+    "environment",
+    "service",
+    "category",
+    "severity",
+    "confidence",
+    "summary",
+    "evidence",
+    "approvalRequired"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "findingId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "source": {
+      "const": "platform-pilot"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "local",
+        "development",
+        "staging",
+        "production"
+      ]
+    },
+    "cluster": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "namespace": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        },
+        "container": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        }
+      }
+    },
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "workload-health",
+        "deployment",
+        "security",
+        "capacity",
+        "observability"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "recommendedRunbook": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "approvalRequired": {
+      "const": true
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    }
+  }
+}
