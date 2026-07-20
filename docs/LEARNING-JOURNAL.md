@@ -2124,6 +2124,23 @@ Created pull requests:
 
 The two PRs represent opposite sides of the same integration boundary. PlatformPilot produces, authenticates, and sends operational findings; CloudOps validates, deduplicates, stores, and converts them into approval-gated risks. Keeping the changes in separate repositories and PRs preserves clear ownership while the shared JSON contract keeps both applications compatible.
 
+### Inspect pull-request checks
+
+```bash
+gh pr checks 1 --repo AZ1600/platform-pilot
+gh pr checks 1 --repo AZ1600/cloudops-command-center
+```
+
+PlatformPilot reported that no checks were configured for its feature branch. This did not mean its code had failed; it meant GitHub had no automated PR workflow to run. Local pytest results and GitHub-hosted CI results are separate forms of evidence.
+
+CloudOps reported three successful checks and no failures or pending jobs:
+
+```text
+0 cancelled, 0 failing, 3 successful, 0 skipped, and 0 pending checks
+```
+
+The successful checks were the Vercel deployment, Vercel preview integration, and the GitHub Actions `CI/validate (pull_request)` job. This confirmed that the pushed CloudOps branch passed its remote validation and produced a deployable preview. The missing PlatformPilot checks identified the next engineering improvement: add or verify a GitHub Actions workflow that runs its Python tests automatically on pull requests.
+
 ### Test service authentication independently
 
 ```bash
