@@ -104,7 +104,7 @@ Audit Log
 
 ### Decision Trace
 
-PlatformPilot imports include a deterministic Decision Trace that explains how the application moves from supplied observations to an approval-gated recommendation. Each trace contains five typed steps:
+PlatformPilot imports and built-in demo signals include a deterministic Decision Trace that explains how the application moves from supplied observations to an approval-gated recommendation. Each trace contains five typed steps:
 
 ```text
 premise → reasoning → hypothesis → verification → conclusion
@@ -127,6 +127,8 @@ Conclusion: Keep the risk in needs_approval and require human review.
 ```
 
 This is an auditable application artifact, not hidden chain-of-thought. It is generated from existing structured fields using fixed templates and confidence adjustments. It does not use an LLM or MCP, infer a root cause as fact, or authorize execution. Raw evidence remains available unchanged, `approvalRequired` remains `true`, and PlatformPilot remediation remains manual.
+
+The dashboard presents the trace in a dedicated investigation workspace. Engineers can search and filter the risk queue, select a risk, compare raw evidence with each trace step, inspect confidence and dependencies, and reach a clearly separated human-approval boundary. The compact queue keeps overview work separate from detailed investigation.
 
 ---
 
@@ -154,7 +156,8 @@ CloudOps Command Center is currently implemented as a frontend-first platform en
 - Risk engine transforms signals into explainable risks
 - React state manages approval, dismissal, execution, metrics, owner routing, and audit history
 - API routes persist platform state, import GitHub Actions failures, and classify Terraform plan JSON
-- A deterministic decision-trace engine turns PlatformPilot evidence into linked, reviewable decision steps
+- A deterministic decision-trace engine turns source evidence into linked, reviewable decision steps
+- A responsive investigation workspace connects the risk queue, raw evidence, trace, and approval gate
 - Vitest validates risk logic and data relationships
 - GitHub Actions workflow validates lint, typecheck, tests, and build
 

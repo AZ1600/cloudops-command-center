@@ -839,9 +839,266 @@ nav span {
   padding-left: 20px;
 }
 
+.investigation-layout {
+  align-items: start;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(560px, 1.6fr);
+  margin-bottom: 20px;
+}
+
+.risk-inbox-panel {
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  position: sticky;
+  top: 20px;
+}
+
+.risk-filters {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 14px;
+}
+
+.risk-filters input {
+  grid-column: 1 / -1;
+}
+
+.risk-filters input,
+.risk-filters select {
+  background: white;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  min-height: 42px;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.risk-queue {
+  display: grid;
+  gap: 8px;
+}
+
+.risk-queue-item {
+  background: white;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  display: grid;
+  gap: 7px;
+  justify-items: start;
+  min-height: 0;
+  padding: 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.risk-queue-item:hover,
+.risk-queue-item.selected {
+  background: #f7fbfa;
+  border-color: var(--teal);
+}
+
+.risk-queue-item.selected {
+  box-shadow: inset 4px 0 0 var(--teal);
+}
+
+.risk-queue-item strong {
+  line-height: 1.35;
+}
+
+.risk-queue-item small,
+.queue-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.decision-inspector {
+  box-shadow: var(--shadow);
+}
+
+.inspector-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+
+.inspector-header h3 {
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  margin-bottom: 10px;
+}
+
+.inspector-header p:not(.eyebrow),
+.approval-boundary p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0;
+}
+
+.inspector-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.inspector-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0;
+}
+
+.inspector-summary div {
+  background: #f7f9fb;
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+
+.inspector-summary span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.inspector-summary strong {
+  font-size: 0.95rem;
+  text-transform: capitalize;
+}
+
+.inspector-evidence {
+  margin-bottom: 20px;
+}
+
+.trace-flow {
+  display: grid;
+}
+
+.trace-step {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.trace-rail {
+  align-items: flex-start;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.trace-rail::after {
+  background: var(--line);
+  bottom: 0;
+  content: "";
+  position: absolute;
+  top: 30px;
+  width: 2px;
+}
+
+.trace-step:last-child .trace-rail::after {
+  display: none;
+}
+
+.trace-rail span {
+  align-items: center;
+  background: var(--ink);
+  color: white;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  height: 28px;
+  justify-content: center;
+  position: relative;
+  width: 28px;
+  z-index: 1;
+}
+
+.trace-step.verification .trace-rail span {
+  background: var(--blue);
+}
+
+.trace-step.conclusion .trace-rail span {
+  background: var(--teal);
+}
+
+.trace-content {
+  border: 1px solid var(--line);
+  margin: 0 0 12px 6px;
+  padding: 14px;
+}
+
+.trace-content header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.trace-content header span {
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 6px 8px;
+}
+
+.trace-content p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 9px 0;
+}
+
+.trace-content small {
+  color: #7a8595;
+  font-weight: 700;
+}
+
+.approval-boundary {
+  align-items: center;
+  background: #fff8ed;
+  border: 1px solid #e7c794;
+  display: flex;
+  gap: 22px;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 18px;
+}
+
+.approval-boundary span {
+  color: var(--amber);
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.approval-boundary strong {
+  display: block;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.operations-layout {
+  grid-template-columns: 1fr;
+}
+
 @media (max-width: 1080px) {
   .shell,
   .split,
+  .investigation-layout,
   .metrics,
   .service-grid,
   .integration-grid,
@@ -858,6 +1115,8 @@ nav span {
   }
 
   .hero,
+  .inspector-header,
+  .approval-boundary,
   .risk-topline,
   .risk-footer {
     align-items: stretch;
@@ -865,7 +1124,17 @@ nav span {
   }
 
   .hero-actions,
+  .approval-actions,
   .risk-footer div {
     width: 100%;
+  }
+
+  .risk-inbox-panel {
+    max-height: none;
+    position: static;
+  }
+
+  .inspector-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

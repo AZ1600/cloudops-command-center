@@ -26,5 +26,7 @@ describe("risk engine", () => {
     const risks = analyzeSignals(mockSignals);
 
     expect(risks.every((risk) => risk.evidence.length >= 3)).toBe(true);
+    expect(risks.every((risk) => risk.decisionTrace?.steps.length === 5)).toBe(true);
+    expect(risks.every((risk) => risk.decisionTrace?.steps[0].content.includes(risk.evidence[0]))).toBe(true);
   });
 });

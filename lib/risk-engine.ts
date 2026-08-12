@@ -1,4 +1,5 @@
 import type { InfrastructureRisk, InfrastructureSignal, Remediation, RiskSeverity, RiskSummary } from "@/lib/types";
+import { createDecisionTrace } from "@/lib/decision-trace";
 
 const severityRank: Record<RiskSeverity, number> = {
   critical: 4,
@@ -99,6 +100,16 @@ export function analyzeSignals(signals: InfrastructureSignal[]): InfrastructureR
     .map((signal) => ({
       ...signal,
       impact: buildImpact(signal),
+      decisionTrace: createDecisionTrace({
+        id: signal.id,
+        sourceLabel: "CloudOps signal engine",
+        service: signal.service,
+        environment: "the monitored environment",
+        severity: signal.severity,
+        summary: signal.title,
+        evidence: signal.evidence,
+        confidence: Math.min(0.98, 0.72 + signal.evidence.length * 0.05 + severityRank[signal.severity] * 0.02),
+      }),
       recommendation: buildRemediation(signal),
       status: "needs_approval",
       approvalRequired: true,

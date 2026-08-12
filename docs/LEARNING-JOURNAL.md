@@ -2,6 +2,71 @@
 
 This journal records the commands, decisions, errors, fixes, and lessons learned while improving CloudOps Command Center.
 
+## Session 6 — Decision Trace investigation workspace
+
+**Date:** 12 August 2026
+**Branch:** `feature/decision-trace`
+
+### Goal
+
+Make Decision Trace visible and useful in the frontend instead of leaving it as an API-only artifact.
+
+### Architecture and interface decisions
+
+The large repeated risk cards were replaced with a two-part investigation workspace:
+
+```text
+Searchable risk queue → selected risk inspector
+                         ├── source metadata
+                         ├── raw evidence
+                         ├── five-step Decision Trace
+                         └── human approval boundary
+```
+
+The queue supports text, severity, and source filters. Selecting a risk updates the inspector without navigating away. Each trace step displays its type, bounded confidence, content, and dependencies. Raw source evidence remains visually separate so an engineer can distinguish observations from hypotheses.
+
+The deterministic engine now also generates traces for built-in demo signals. This makes the feature testable immediately after `npm run dev`; it does not change execution permissions. Imported PlatformPilot risks still use their contract confidence and manual execution mode.
+
+The layout collapses to one column on narrow screens. The risk queue stops being sticky on those screens, and summary information becomes a two-column grid.
+
+### Commands run
+
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run typecheck
+npm run build
+git diff --check
+```
+
+The running application was reloaded at `http://localhost:3000/` and inspected in the browser.
+
+### Failures and fixes
+
+There were no code validation failures. The first browser screenshot used the narrow in-app browser viewport, which showed only the top of the responsive page. DOM inspection confirmed a 319-pixel viewport, the selected risk inspector, five trace steps, five queue items, and no console errors.
+
+### Tests and results
+
+```text
+Test Files  11 passed
+Tests       36 passed
+Lint        passed
+Typecheck   passed
+Build       passed
+```
+
+The risk-engine test now also verifies that every demo risk receives five trace steps and that its premise includes the original evidence.
+
+### Lessons learned
+
+- An auditable backend feature needs a dedicated inspection surface, not another badge on a large card.
+- Evidence and hypotheses should be visually separated to prevent false certainty.
+- A selected-item queue scales better than repeating every detail for every risk.
+- A visible approval boundary helps users understand that explanation and authorization are different operations.
+
+---
+
 ## Session 5 — Auditable Decision Trace
 
 **Date:** 12 August 2026

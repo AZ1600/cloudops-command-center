@@ -7,7 +7,7 @@ import { sampleTerraformPlan } from "@/data/sample-terraform-plan";
 import { serviceCatalog } from "@/data/service-catalog";
 import { canApprove, canExecute } from "@/lib/permissions";
 import { summarizeRisks } from "@/lib/risk-engine";
-import type { GitHubActionsSummary, InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource, TerraformPlanSummary } from "@/lib/types";
+import type { DecisionTraceStepType, GitHubActionsSummary, InfrastructureRisk, IntegrationStatus, PlatformState, RiskStatus, ServiceHealth, SignalSource, TerraformPlanSummary } from "@/lib/types";
 
 const sourceLabel = {
   github: "GitHub",
@@ -45,6 +45,14 @@ const serviceHealthLabel: Record<ServiceHealth, string> = {
   watch: "Watch",
 };
 
+const traceStepLabel: Record<DecisionTraceStepType, string> = {
+  premise: "Premise",
+  reasoning: "Reasoning",
+  hypothesis: "Hypothesis",
+  verification: "Verification",
+  conclusion: "Conclusion",
+};
+
 function getSignalConfidence(risk: InfrastructureRisk) {
   const severityWeight = risk.severity === "critical" ? 8 : risk.severity === "high" ? 5 : risk.severity === "medium" ? 3 : 1;
   return Math.min(98, 72 + risk.evidence.length * 5 + severityWeight);
@@ -74,12 +82,22 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
   const [githubRepository, setGithubRepository] = useState("AZ1600/cloudops-command-center");
   const [githubActionsSummary, setGithubActionsSummary] = useState<GitHubActionsSummary | null>(null);
   const [githubImportError, setGithubImportError] = useState<string | null>(null);
+  const [selectedRiskId, setSelectedRiskId] = useState(initialState.risks[0]?.id ?? "");
+  const [riskQuery, setRiskQuery] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
 
   const { auditEvents, currentMember, executionEvents, risks, workspace } = platformState;
   const summary = useMemo(() => summarizeRisks(risks), [risks]);
   const memberCanApprove = canApprove(currentMember.role);
   const memberCanExecute = canExecute(currentMember.role);
   const visibleRisks = risks.filter((risk) => risk.status !== "dismissed");
+  const filteredRisks = visibleRisks.filter((risk) => {
+    const query = riskQuery.trim().toLowerCase();
+    const matchesQuery = !query || [risk.title, risk.service, risk.routedTo].some((value) => value.toLowerCase().includes(query));
+    return matchesQuery && (severityFilter === "all" || risk.severity === severityFilter) && (sourceFilter === "all" || risk.source === sourceFilter);
+  });
+  const selectedRisk = risks.find((risk) => risk.id === selectedRiskId) ?? filteredRisks[0] ?? visibleRisks[0];
   const approvedRisks = risks.filter((risk) => risk.status === "approved" || risk.status === "executed");
   const activeServices = new Set(visibleRisks.map((risk) => risk.service));
   const risksByService = visibleRisks.reduce<Record<string, number>>((counts, risk) => ({ ...counts, [risk.service]: (counts[risk.service] ?? 0) + 1 }), {});
@@ -300,71 +318,105 @@ export function CloudOpsDashboard({ initialState }: CloudOpsDashboardProps) {
           </article>
         </section>
 
-        <section className="split">
-          <div className="panel wide" id="risk-inbox">
+        <section className="investigation-layout" id="risk-inbox">
+          <div className="panel risk-inbox-panel">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Risk Inbox</p>
-                <h3>AI-detected infrastructure risks</h3>
+                <h3>Investigation queue</h3>
               </div>
               <span>{summary.needsApproval} need approval</span>
             </div>
-            <div className="risk-stack">
-              {visibleRisks.map((risk) => (
-                <article className={`risk-card ${risk.status}`} key={risk.id}>
-                  <div className="risk-topline">
-                    <div>
-                      <span className={`severity ${risk.severity}`}>{severityLabel[risk.severity]}</span>
-                      <span className="source">{sourceLabel[risk.source]}</span>
-                      <span className={`status ${risk.status}`}>{statusLabel[risk.status]}</span>
-                    </div>
-                    <span className="owner">Route: {risk.routedTo}</span>
-                  </div>
-                  <h4>{risk.title}</h4>
-                  <p>{risk.detail}</p>
-                  <div className="explain">
-                    <strong>Impact</strong>
-                    <span>{risk.impact}</span>
-                  </div>
-                  <div className="evidence-view">
-                    <div>
-                      <strong>Evidence</strong>
-                      <span>{getSignalConfidence(risk)}% confidence</span>
-                    </div>
-                    <ul>
-                      {risk.evidence.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="remediation">
-                    <strong>{risk.recommendation.summary}</strong>
-                    <ol>
-                      {risk.recommendation.steps.slice(0, 3).map((step) => (
-                        <li key={step}>{step}</li>
-                      ))}
-                    </ol>
-                  </div>
-                  <div className="risk-footer">
-                    <code>{risk.recommendation.commandPreview}</code>
-                    <div>
-                      <button
-                        className="secondary"
-                        disabled={risk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${risk.id}-dismissed`}
-                        onClick={() => dismissRisk(risk)}
-                      >
-                        {pendingAction === `${risk.id}-dismissed` ? "Dismissing" : "Dismiss"}
-                      </button>
-                      <button disabled={risk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${risk.id}-approved`} onClick={() => approveRisk(risk)}>
-                        {pendingAction === `${risk.id}-approved` ? "Approving" : risk.status === "approved" ? "Approved" : "Approve"}
-                      </button>
-                    </div>
-                  </div>
-                </article>
+            <div className="risk-filters">
+              <input aria-label="Search risks" onChange={(event) => setRiskQuery(event.target.value)} placeholder="Search risk, service, or owner" value={riskQuery} />
+              <select aria-label="Filter by severity" onChange={(event) => setSeverityFilter(event.target.value)} value={severityFilter}>
+                <option value="all">All severities</option>
+                {Object.entries(severityLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <select aria-label="Filter by source" onChange={(event) => setSourceFilter(event.target.value)} value={sourceFilter}>
+                <option value="all">All sources</option>
+                {Object.entries(sourceLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div className="risk-queue">
+              {filteredRisks.map((risk) => (
+                <button
+                  aria-pressed={selectedRisk?.id === risk.id}
+                  className={`risk-queue-item ${selectedRisk?.id === risk.id ? "selected" : ""}`}
+                  key={risk.id}
+                  onClick={() => setSelectedRiskId(risk.id)}
+                >
+                  <span className={`severity ${risk.severity}`}>{severityLabel[risk.severity]}</span>
+                  <strong>{risk.title}</strong>
+                  <small>{risk.service} · {risk.routedTo}</small>
+                  <span className="queue-meta">{sourceLabel[risk.source]} · {getSignalConfidence(risk)}% confidence</span>
+                </button>
               ))}
+              {filteredRisks.length === 0 ? <p className="empty-state">No risks match these filters.</p> : null}
             </div>
           </div>
 
+          {selectedRisk ? (
+            <article className="panel decision-inspector" aria-live="polite">
+              <div className="inspector-header">
+                <div>
+                  <p className="eyebrow">Decision Trace</p>
+                  <h3>{selectedRisk.title}</h3>
+                  <p>{selectedRisk.detail}</p>
+                </div>
+                <div className="inspector-badges">
+                  <span className={`severity ${selectedRisk.severity}`}>{severityLabel[selectedRisk.severity]}</span>
+                  <span className={`status ${selectedRisk.status}`}>{statusLabel[selectedRisk.status]}</span>
+                  <span className="owner">{selectedRisk.routedTo}</span>
+                </div>
+              </div>
+
+              <div className="inspector-summary">
+                <div><span>Service</span><strong>{selectedRisk.service}</strong></div>
+                <div><span>Signal</span><strong>{sourceLabel[selectedRisk.source]}</strong></div>
+                <div><span>Confidence</span><strong>{getSignalConfidence(selectedRisk)}%</strong></div>
+                <div><span>Execution</span><strong>{selectedRisk.recommendation.executionMode.replace("_", " ")}</strong></div>
+              </div>
+
+              <div className="evidence-view inspector-evidence">
+                <div><strong>Raw evidence</strong><span>Preserved from source</span></div>
+                <ul>{selectedRisk.evidence.map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+
+              {selectedRisk.decisionTrace ? (
+                <div className="trace-flow">
+                  {selectedRisk.decisionTrace.steps.map((step, index) => (
+                    <article className={`trace-step ${step.type}`} key={step.id}>
+                      <div className="trace-rail"><span>{index + 1}</span></div>
+                      <div className="trace-content">
+                        <header>
+                          <strong>{traceStepLabel[step.type]}</strong>
+                          <span>{Math.round(step.confidence * 100)}% confidence</span>
+                        </header>
+                        <p>{step.content}</p>
+                        <small>{step.dependencies.length ? `Depends on ${step.dependencies.map((id) => id.split("-").at(-1)).join(", ")}` : "Source observation"}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : <p className="empty-state">This risk predates Decision Trace generation. Re-import the source finding to generate a trace.</p>}
+
+              <div className="approval-boundary">
+                <div>
+                  <span>Human approval boundary</span>
+                  <strong>No infrastructure change runs from this trace.</strong>
+                  <p>{selectedRisk.recommendation.summary}</p>
+                </div>
+                <div className="approval-actions">
+                  <button className="secondary" disabled={selectedRisk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${selectedRisk.id}-dismissed`} onClick={() => dismissRisk(selectedRisk)}>Dismiss</button>
+                  <button disabled={selectedRisk.status !== "needs_approval" || !memberCanApprove || pendingAction === `${selectedRisk.id}-approved`} onClick={() => approveRisk(selectedRisk)}>{pendingAction === `${selectedRisk.id}-approved` ? "Approving" : "Approve for review"}</button>
+                </div>
+              </div>
+            </article>
+          ) : null}
+        </section>
+
+        <section className="split operations-layout">
           <div className="side-stack">
             <div className="panel" id="owners">
               <p className="eyebrow">Owners</p>

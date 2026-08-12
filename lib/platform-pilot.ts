@@ -137,6 +137,7 @@ export function mapPlatformPilotFindingToRisk(
       "An engineer should confirm the evidence and assess user impact.",
     decisionTrace: createDecisionTrace({
       id: finding.findingId,
+      sourceLabel: "PlatformPilot",
       service: finding.service,
       environment: finding.environment,
       severity: finding.severity,

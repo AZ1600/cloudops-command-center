@@ -6,6 +6,7 @@ import type {
 
 export type DecisionTraceInput = {
   id: string;
+  sourceLabel?: string;
   service: string;
   environment: string;
   severity: RiskSeverity;
@@ -37,7 +38,7 @@ export function createDecisionTrace(input: DecisionTraceInput): DecisionTrace {
       id: premiseId,
       type: "premise",
       content:
-        `PlatformPilot reported ${input.summary.toLowerCase()} in ${input.environment}. ` +
+        `${input.sourceLabel ?? "PlatformPilot"} reported ${input.summary.toLowerCase()} in ${input.environment}. ` +
         `Supplied evidence: ${evidenceSummary}`,
       confidence: adjustedConfidence(input.confidence, confidenceAdjustment.premise),
       dependencies: []
