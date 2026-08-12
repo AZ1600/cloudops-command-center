@@ -2,6 +2,148 @@
 
 This journal records the commands, decisions, errors, fixes, and lessons learned while improving CloudOps Command Center.
 
+## Session 6 — Decision Trace investigation workspace
+
+**Date:** 12 August 2026
+**Branch:** `feature/decision-trace`
+
+### Goal
+
+Make Decision Trace visible and useful in the frontend instead of leaving it as an API-only artifact.
+
+### Architecture and interface decisions
+
+The large repeated risk cards were replaced with a two-part investigation workspace:
+
+```text
+Searchable risk queue → selected risk inspector
+                         ├── source metadata
+                         ├── raw evidence
+                         ├── five-step Decision Trace
+                         └── human approval boundary
+```
+
+The queue supports text, severity, and source filters. Selecting a risk updates the inspector without navigating away. Each trace step displays its type, bounded confidence, content, and dependencies. Raw source evidence remains visually separate so an engineer can distinguish observations from hypotheses.
+
+The deterministic engine now also generates traces for built-in demo signals. This makes the feature testable immediately after `npm run dev`; it does not change execution permissions. Imported PlatformPilot risks still use their contract confidence and manual execution mode.
+
+The layout collapses to one column on narrow screens. The risk queue stops being sticky on those screens, and summary information becomes a two-column grid.
+
+### Commands run
+
+```bash
+npm run typecheck
+npm run test
+npm run lint
+npm run typecheck
+npm run build
+git diff --check
+```
+
+The running application was reloaded at `http://localhost:3000/` and inspected in the browser.
+
+### Failures and fixes
+
+There were no code validation failures. The first browser screenshot used the narrow in-app browser viewport, which showed only the top of the responsive page. DOM inspection confirmed a 319-pixel viewport, the selected risk inspector, five trace steps, five queue items, and no console errors.
+
+### Tests and results
+
+```text
+Test Files  11 passed
+Tests       36 passed
+Lint        passed
+Typecheck   passed
+Build       passed
+```
+
+The risk-engine test now also verifies that every demo risk receives five trace steps and that its premise includes the original evidence.
+
+### Lessons learned
+
+- An auditable backend feature needs a dedicated inspection surface, not another badge on a large card.
+- Evidence and hypotheses should be visually separated to prevent false certainty.
+- A selected-item queue scales better than repeating every detail for every risk.
+- A visible approval boundary helps users understand that explanation and authorization are different operations.
+
+---
+
+## Session 5 — Auditable Decision Trace
+
+**Date:** 12 August 2026
+**Branch:** `feature/decision-trace`
+
+### Goal
+
+Add an auditable, deterministic Decision Trace to imported PlatformPilot risks without adding MCP, exposing hidden chain-of-thought, or weakening the existing human-approval boundary.
+
+### Architecture decisions
+
+Three new domain types describe the artifact: `DecisionTraceStepType`, `DecisionTraceStep`, and `DecisionTrace`. `InfrastructureRisk.decisionTrace` is optional so existing risk sources remain backward compatible.
+
+The engine in `lib/decision-trace.ts` accepts structured finding data and produces exactly five steps:
+
+```text
+premise → reasoning → hypothesis → verification → conclusion
+```
+
+Stable IDs and dependency arrays make the trace inspectable as a graph. Fixed templates make output repeatable. Confidence comes from the source confidence with small, explicit adjustments and is clamped to the inclusive range `0` to `1`. The premise references the supplied evidence, while cautious language distinguishes an observation from a hypothesis.
+
+The PlatformPilot mapper attaches the generated trace while preserving the original evidence array. Its existing controls remain unchanged:
+
+- `approvalRequired: true`
+- `status: "needs_approval"`
+- `executionMode: "manual"`
+
+The trace is an application-level explanation, not private model reasoning. No LLM or MCP was introduced, and the trace cannot execute remediation.
+
+### Commands run
+
+```bash
+git clone https://github.com/AZ1600/cloudops-command-center.git
+git switch -c feature/decision-trace
+npm ci
+npm run test -- tests/decision-trace.test.ts tests/platform-pilot.test.ts
+npm run typecheck
+npm run test
+npm run lint
+npm run build
+npm run contracts:validate
+```
+
+### Failures and fixes
+
+There were no implementation or validation failures. `npm ci` reported that install scripts for `fsevents`, `sharp`, and `unrs-resolver` were not covered by the local npm allow-scripts configuration. Installation still completed successfully, and the production build subsequently passed, so no permission policy was changed.
+
+### Tests and results
+
+Focused Decision Trace and PlatformPilot tests:
+
+```text
+Test Files  2 passed
+Tests       6 passed
+```
+
+Full suite:
+
+```text
+Test Files  11 passed
+Tests       36 passed
+```
+
+ESLint and `tsc --noEmit` completed with no errors. The Next.js production build compiled successfully, generated all static pages, and recognized all dynamic API routes. Contract validation accepted `contracts/examples/platform-pilot-valid.json`.
+
+The tests prove that the engine is deterministic, emits the required step order, links dependencies correctly, cites supplied evidence, bounds every confidence value, and ends at the human-review boundary. The updated mapper test also proves that raw PlatformPilot evidence, manual execution, and approval gating remain intact alongside the new trace.
+
+### Lessons learned
+
+- Auditable reasoning does not require exposing hidden model reasoning; a deterministic decision artifact is easier to test and review.
+- Confidence should be treated as bounded metadata, not proof that a hypothesis is true.
+- Explicit dependencies make a linear explanation usable as a graph later without complicating the first implementation.
+- Optional domain fields allow one ingestion path to evolve without forcing synthetic traces onto unrelated risk sources.
+- Safety controls belong in the operational model. An explanation must not silently become authorization to act.
+
+---
+
 ## Session 1 — Baseline and dependency investigation
 
 **Date:** 18 July 2026
