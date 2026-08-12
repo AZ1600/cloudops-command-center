@@ -63,6 +63,19 @@ describe("PlatformPilot risk mapping", () => {
     expect(risk.approvalRequired).toBe(true);
     expect(risk.routedTo).toBe("Platform Team");
     expect(risk.recommendation.executionMode).toBe("manual");
+    expect(risk.decisionTrace?.steps.map((step) => step.type)).toEqual([
+      "premise",
+      "reasoning",
+      "hypothesis",
+      "verification",
+      "conclusion"
+    ]);
+    expect(risk.decisionTrace?.steps[0].content).toContain(
+      "Container worker is in CrashLoopBackOff."
+    );
+    expect(risk.decisionTrace?.conclusionId).toBe(
+      risk.decisionTrace?.steps[4].id
+    );
 
     expect(risk.evidence).toEqual(
       expect.arrayContaining([

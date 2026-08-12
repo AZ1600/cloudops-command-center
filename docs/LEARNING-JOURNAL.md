@@ -2,6 +2,83 @@
 
 This journal records the commands, decisions, errors, fixes, and lessons learned while improving CloudOps Command Center.
 
+## Session 5 — Auditable Decision Trace
+
+**Date:** 12 August 2026
+**Branch:** `feature/decision-trace`
+
+### Goal
+
+Add an auditable, deterministic Decision Trace to imported PlatformPilot risks without adding MCP, exposing hidden chain-of-thought, or weakening the existing human-approval boundary.
+
+### Architecture decisions
+
+Three new domain types describe the artifact: `DecisionTraceStepType`, `DecisionTraceStep`, and `DecisionTrace`. `InfrastructureRisk.decisionTrace` is optional so existing risk sources remain backward compatible.
+
+The engine in `lib/decision-trace.ts` accepts structured finding data and produces exactly five steps:
+
+```text
+premise → reasoning → hypothesis → verification → conclusion
+```
+
+Stable IDs and dependency arrays make the trace inspectable as a graph. Fixed templates make output repeatable. Confidence comes from the source confidence with small, explicit adjustments and is clamped to the inclusive range `0` to `1`. The premise references the supplied evidence, while cautious language distinguishes an observation from a hypothesis.
+
+The PlatformPilot mapper attaches the generated trace while preserving the original evidence array. Its existing controls remain unchanged:
+
+- `approvalRequired: true`
+- `status: "needs_approval"`
+- `executionMode: "manual"`
+
+The trace is an application-level explanation, not private model reasoning. No LLM or MCP was introduced, and the trace cannot execute remediation.
+
+### Commands run
+
+```bash
+git clone https://github.com/AZ1600/cloudops-command-center.git
+git switch -c feature/decision-trace
+npm ci
+npm run test -- tests/decision-trace.test.ts tests/platform-pilot.test.ts
+npm run typecheck
+npm run test
+npm run lint
+npm run build
+npm run contracts:validate
+```
+
+### Failures and fixes
+
+There were no implementation or validation failures. `npm ci` reported that install scripts for `fsevents`, `sharp`, and `unrs-resolver` were not covered by the local npm allow-scripts configuration. Installation still completed successfully, and the production build subsequently passed, so no permission policy was changed.
+
+### Tests and results
+
+Focused Decision Trace and PlatformPilot tests:
+
+```text
+Test Files  2 passed
+Tests       6 passed
+```
+
+Full suite:
+
+```text
+Test Files  11 passed
+Tests       36 passed
+```
+
+ESLint and `tsc --noEmit` completed with no errors. The Next.js production build compiled successfully, generated all static pages, and recognized all dynamic API routes. Contract validation accepted `contracts/examples/platform-pilot-valid.json`.
+
+The tests prove that the engine is deterministic, emits the required step order, links dependencies correctly, cites supplied evidence, bounds every confidence value, and ends at the human-review boundary. The updated mapper test also proves that raw PlatformPilot evidence, manual execution, and approval gating remain intact alongside the new trace.
+
+### Lessons learned
+
+- Auditable reasoning does not require exposing hidden model reasoning; a deterministic decision artifact is easier to test and review.
+- Confidence should be treated as bounded metadata, not proof that a hypothesis is true.
+- Explicit dependencies make a linear explanation usable as a graph later without complicating the first implementation.
+- Optional domain fields allow one ingestion path to evolve without forcing synthetic traces onto unrelated risk sources.
+- Safety controls belong in the operational model. An explanation must not silently become authorization to act.
+
+---
+
 ## Session 1 — Baseline and dependency investigation
 
 **Date:** 18 July 2026

@@ -1,6 +1,7 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import operationalFindingSchema from "@/contracts/operational-finding.schema.json";
+import { createDecisionTrace } from "@/lib/decision-trace";
 import type {
   InfrastructureRisk,
   RiskCategory
@@ -134,6 +135,18 @@ export function mapPlatformPilotFindingToRisk(
     impact:
       `${finding.service} may be affected if this condition continues. ` +
       "An engineer should confirm the evidence and assess user impact.",
+    decisionTrace: createDecisionTrace({
+      id: finding.findingId,
+      service: finding.service,
+      environment: finding.environment,
+      severity: finding.severity,
+      summary: finding.summary,
+      evidence: finding.evidence,
+      confidence: finding.confidence,
+      verificationGuidance:
+        `Verify all ${finding.evidence.length} raw evidence item(s), the affected resource, ` +
+        "current service health, blast radius, and rollback plan."
+    }),
     recommendation: {
       summary:
         "Investigate the evidence, confirm the root cause, and prepare a reviewed remediation.",

@@ -42,8 +42,29 @@ export type Remediation = {
   commandPreview?: string;
 };
 
+export type DecisionTraceStepType =
+  | "premise"
+  | "reasoning"
+  | "hypothesis"
+  | "verification"
+  | "conclusion";
+
+export type DecisionTraceStep = {
+  id: string;
+  type: DecisionTraceStepType;
+  content: string;
+  confidence: number;
+  dependencies: string[];
+};
+
+export type DecisionTrace = {
+  steps: DecisionTraceStep[];
+  conclusionId: string;
+};
+
 export type InfrastructureRisk = InfrastructureSignal & {
   impact: string;
+  decisionTrace?: DecisionTrace;
   recommendation: Remediation;
   status: RiskStatus;
   approvalRequired: true;

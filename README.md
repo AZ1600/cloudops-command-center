@@ -102,6 +102,32 @@ Audit Log
 - Includes safety checks and rollback plans
 - Connects risks to controlled operational procedures
 
+### Decision Trace
+
+PlatformPilot imports include a deterministic Decision Trace that explains how the application moves from supplied observations to an approval-gated recommendation. Each trace contains five typed steps:
+
+```text
+premise → reasoning → hypothesis → verification → conclusion
+```
+
+Every step has a stable ID, a confidence value bounded from `0` to `1`, and explicit dependencies on earlier steps. The premise cites PlatformPilot's raw evidence; the verification step tells an engineer what must be checked; and the conclusion keeps the risk in `needs_approval`.
+
+Example:
+
+```text
+Premise: PlatformPilot reported a restarting worker pod and supplied its observations.
+  ↓
+Reasoning: The observations indicate a critical condition affecting worker-ingestion.
+  ↓
+Hypothesis: The service may require a reviewed remediation to reduce impact.
+  ↓
+Verification: Confirm raw evidence, resource health, blast radius, and rollback plan.
+  ↓
+Conclusion: Keep the risk in needs_approval and require human review.
+```
+
+This is an auditable application artifact, not hidden chain-of-thought. It is generated from existing structured fields using fixed templates and confidence adjustments. It does not use an LLM or MCP, infer a root cause as fact, or authorize execution. Raw evidence remains available unchanged, `approvalRequired` remains `true`, and PlatformPilot remediation remains manual.
+
 ---
 
 ## Demo Risk Sources
@@ -128,6 +154,7 @@ CloudOps Command Center is currently implemented as a frontend-first platform en
 - Risk engine transforms signals into explainable risks
 - React state manages approval, dismissal, execution, metrics, owner routing, and audit history
 - API routes persist platform state, import GitHub Actions failures, and classify Terraform plan JSON
+- A deterministic decision-trace engine turns PlatformPilot evidence into linked, reviewable decision steps
 - Vitest validates risk logic and data relationships
 - GitHub Actions workflow validates lint, typecheck, tests, and build
 
@@ -154,6 +181,7 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run contracts:validate
 ```
 
 Current validation coverage checks:
@@ -165,6 +193,8 @@ Current validation coverage checks:
 - Service catalog coverage
 - Terraform plan risk import
 - GitHub Actions failure import
+- Decision Trace ordering, dependencies, confidence bounds, evidence use, and safety conclusion
+- PlatformPilot contract validation and approval-gated Decision Trace mapping
 
 ---
 
