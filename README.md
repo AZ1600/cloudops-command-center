@@ -66,7 +66,7 @@ executionMode: manual
 
 ## Investigation Workspace
 
-![Decision Trace investigation workspace](docs/screenshots/dashboard-risk-inbox.png)
+![Decision Trace investigation workspace](docs/dashboard-risk-inbox.png)
 
 The investigation workspace separates overview work from detailed analysis:
 
@@ -78,7 +78,7 @@ The investigation workspace separates overview work from detailed analysis:
 
 ### Complete Decision Trace
 
-![Complete Decision Trace and approval boundary](docs/screenshots/decision-trace-investigation.png)
+![Complete Decision Trace and approval boundary](docs/decision-trace-investigation.png)
 
 This view shows the complete five-step trace. Confidence decreases as the trace moves from source observations toward a hypothesis and conclusion, reflecting increasing uncertainty. The final panel makes the operational boundary explicit: no infrastructure change runs from the trace, and a human must review the evidence before remediation.
 
