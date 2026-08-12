@@ -1,243 +1,197 @@
 # CloudOps Command Center
 
-## Overview
+CloudOps Command Center is a platform engineering assistant that turns infrastructure signals into explainable, owner-routed, approval-gated remediation workflows.
 
-CloudOps Command Center is an AI-powered platform engineering assistant that detects infrastructure risks, explains their impact, recommends safe remediation steps, routes issues to the correct service owner, and executes only after approval.
+It brings risk detection, raw evidence, service ownership, deterministic Decision Traces, runbooks, human approvals, controlled execution, and audit history into one operational workspace.
 
-The project demonstrates a production-style platform engineering workflow for cloud teams. It combines infrastructure signal ingestion, service ownership, risk explanation, runbooks, approval gates, simulated execution, and audit history in one command center.
+## Project Overview
 
----
+The overview below summarizes the investigation experience, system architecture, five-step Decision Trace, safety boundary, and core technology stack.
+
+![CloudOps Command Center project overview](docs/Project-overview.png)
 
 ## Problem It Solves
 
-Cloud and platform teams receive signals from many places:
+Cloud and platform teams receive signals from GitHub Actions, AWS, Kubernetes, Terraform, and monitoring systems. Seeing an alert is only the beginning. Engineers still need to determine:
 
-- GitHub Actions
-- AWS
-- Kubernetes
-- Terraform
-- Monitoring systems
+- What is risky and why does it matter?
+- Which service and environment are affected?
+- What evidence supports the recommendation?
+- Who owns the service?
+- What must be verified before remediation?
+- Is human approval required?
+- Can the decision and resulting action be audited later?
 
-The challenge is not only seeing alerts. The real challenge is knowing:
-
-- What is risky?
-- Why does it matter?
-- Which service is affected?
-- Who owns it?
-- What is the safe fix?
-- Should the fix be executed now?
-- Is there an audit trail?
-
-CloudOps Command Center turns disconnected infrastructure signals into explainable, owner-routed, approval-gated remediation workflows.
-
----
+CloudOps Command Center connects those questions into one controlled workflow.
 
 ## Core Workflow
 
-User / Platform Engineer
-↓
-Infrastructure Signals
-↓
-AI Risk Engine
-↓
-Evidence + Impact Explanation
-↓
-Service Owner Routing
-↓
-Runbook-Based Remediation
-↓
-Approval Queue
-↓
-Simulated Execution
-↓
-Audit Log
-
----
-
-## Features
-
-### Risk Inbox
-
-- Detects infrastructure risks from mock cloud signals
-- Classifies risks by severity and category
-- Shows business and technical impact
-- Displays raw evidence behind every recommendation
-- Shows confidence score for each risk
-
-### Approval Workflow
-
-- Risks require approval before execution
-- Approved risks move into the approval queue
-- Dismissed risks are removed from active review
-- Metrics update as decisions are made
-
-### Execution Log
-
-- Simulates approved remediation execution
-- Records safety checks
-- Captures command preview
-- Stores execution history for auditability
-
-### Owner Routing
-
-- Routes each risk to the correct owner/team
-- Tracks active risks per owner
-- Shows urgent, waiting, and completed work
-
-### Service Catalog
-
-- Tracks owned platform assets
-- Shows owner, runtime, environment, health, last change, linked integrations, and active risk count
-- Demonstrates a Backstage-style service ownership model
-
-### Integrations Status
-
-- Shows infrastructure signal sources
-- Tracks mock/connected/not connected status
-- Displays last sync time, signal count, and what each integration provides
-
-### Runbooks
-
-- Documents remediation procedures
-- Includes safety checks and rollback plans
-- Connects risks to controlled operational procedures
-
-### Decision Trace
-
-PlatformPilot imports and built-in demo signals include a deterministic Decision Trace that explains how the application moves from supplied observations to an approval-gated recommendation. Each trace contains five typed steps:
-
 ```text
-premise → reasoning → hypothesis → verification → conclusion
+Infrastructure signal
+        ↓
+Validation and risk mapping
+        ↓
+Raw evidence + service ownership
+        ↓
+Deterministic Decision Trace
+        ↓
+Engineer verification
+        ↓
+Human approval boundary
+        ↓
+Controlled remediation
+        ↓
+Audit and execution history
 ```
 
-Every step has a stable ID, a confidence value bounded from `0` to `1`, and explicit dependencies on earlier steps. The premise cites PlatformPilot's raw evidence; the verification step tells an engineer what must be checked; and the conclusion keeps the risk in `needs_approval`.
+## Decision Trace
 
-Example:
+Each supported risk can include an auditable Decision Trace with five typed steps:
 
 ```text
-Premise: PlatformPilot reported a restarting worker pod and supplied its observations.
-  ↓
-Reasoning: The observations indicate a critical condition affecting worker-ingestion.
-  ↓
-Hypothesis: The service may require a reviewed remediation to reduce impact.
-  ↓
-Verification: Confirm raw evidence, resource health, blast radius, and rollback plan.
-  ↓
-Conclusion: Keep the risk in needs_approval and require human review.
+Premise → Reasoning → Hypothesis → Verification → Conclusion
 ```
 
-This is an auditable application artifact, not hidden chain-of-thought. It is generated from existing structured fields using fixed templates and confidence adjustments. It does not use an LLM or MCP, infer a root cause as fact, or authorize execution. Raw evidence remains available unchanged, `approvalRequired` remains `true`, and PlatformPilot remediation remains manual.
+Every step has a stable ID, explicit dependencies, and a confidence value bounded between `0` and `1`. The premise cites supplied evidence, the hypothesis remains conditional, the verification step names what an engineer must check, and the conclusion preserves the approval boundary.
 
-The dashboard presents the trace in a dedicated investigation workspace. Engineers can search and filter the risk queue, select a risk, compare raw evidence with each trace step, inspect confidence and dependencies, and reach a clearly separated human-approval boundary. The compact queue keeps overview work separate from detailed investigation.
+This is a deterministic application artifact—not hidden chain-of-thought. It uses structured evidence and fixed templates, does not require MCP or an LLM, and cannot authorize or execute infrastructure changes.
 
----
+PlatformPilot risks continue to enforce:
 
-## Demo Risk Sources
+```text
+approvalRequired: true
+status: needs_approval
+executionMode: manual
+```
 
-The current MVP uses mock and live-ingested signals for:
+## Investigation Workspace
 
-- Failed GitHub Actions deployment
-- Live GitHub Actions workflow run failures
-- Public S3 bucket access risk
-- Kubernetes CrashLoopBackOff
-- Unattached AWS volumes increasing cost
-- Terraform drift in a security group
-- Terraform plan JSON security, cost, and change risks
+![Decision Trace investigation workspace](docs/screenshots/dashboard-risk-inbox.png)
 
----
+The investigation workspace separates overview work from detailed analysis:
+
+- The left-hand queue supports search plus severity and source filters.
+- Selecting a risk opens its service, owner, source, confidence, and execution metadata.
+- Raw evidence is preserved separately from interpretation.
+- The trace shows how each reviewable step depends on earlier evidence.
+- Approval controls remain outside the trace itself.
+
+### Complete Decision Trace
+
+![Complete Decision Trace and approval boundary](docs/screenshots/decision-trace-investigation.png)
+
+This view shows the complete five-step trace. Confidence decreases as the trace moves from source observations toward a hypothesis and conclusion, reflecting increasing uncertainty. The final panel makes the operational boundary explicit: no infrastructure change runs from the trace, and a human must review the evidence before remediation.
 
 ## Architecture
 
-CloudOps Command Center is currently implemented as a frontend-first platform engineering MVP:
+```mermaid
+flowchart TB
+    subgraph Sources["Infrastructure signal sources"]
+        GH["GitHub Actions"]
+        AWS["AWS"]
+        K8S["Kubernetes"]
+        TF["Terraform"]
+        MON["Monitoring"]
+        PP["PlatformPilot"]
+    end
 
-- Next.js app renders the command center UI
-- TypeScript models infrastructure signals, risks, services, integrations, runbooks, execution events, and audit events
-- Mock data simulates cloud integrations while live GitHub Actions and Terraform import flows demonstrate production-style ingestion
-- Risk engine transforms signals into explainable risks
-- React state manages approval, dismissal, execution, metrics, owner routing, and audit history
-- API routes persist platform state, import GitHub Actions failures, and classify Terraform plan JSON
-- A deterministic decision-trace engine turns source evidence into linked, reviewable decision steps
-- A responsive investigation workspace connects the risk queue, raw evidence, trace, and approval gate
-- Vitest validates risk logic and data relationships
-- GitHub Actions workflow validates lint, typecheck, tests, and build
+    subgraph App["CloudOps Command Center — Next.js + TypeScript"]
+        API["Ingestion API routes"]
+        VALIDATE["Contract validation and authentication"]
+        MAP["Signal mapping and risk engine"]
+        TRACE["Deterministic Decision Trace engine"]
+        STATE["Workspace risk state and repository"]
+        UI["Investigation workspace"]
+    end
 
----
+    subgraph Control["Human-controlled operations"]
+        VERIFY["Engineer verification"]
+        APPROVE{"Approval granted?"}
+        RUNBOOK["Runbook-based remediation"]
+        EXEC["Manual, workflow, PR, or simulated execution"]
+        AUDIT["Audit and execution history"]
+    end
 
-## Technologies Used
+    GH & AWS & K8S & TF & MON & PP --> API
+    API --> VALIDATE --> MAP
+    MAP --> TRACE
+    MAP --> STATE
+    TRACE --> STATE --> UI
+    UI --> VERIFY --> APPROVE
+    APPROVE -- "No" --> STATE
+    APPROVE -- "Yes" --> RUNBOOK --> EXEC --> AUDIT
+    AUDIT --> STATE
+```
 
-- Next.js
-- React
+### Architectural responsibilities
+
+| Layer | Responsibility |
+| --- | --- |
+| Signal sources | Supply workflow, cloud, cluster, plan, and monitoring observations. |
+| Ingestion APIs | Accept supported inputs without granting execution authority. |
+| Validation and authentication | Reject malformed or unauthorized PlatformPilot findings before storage. |
+| Risk engine | Normalizes signals into categorized, owner-routed infrastructure risks. |
+| Decision Trace engine | Produces deterministic, evidence-backed steps with bounded confidence and dependencies. |
+| Repository | Uses Postgres when configured and an in-memory demo fallback for local development. |
+| Investigation workspace | Presents the queue, raw evidence, trace, recommendation, and approval boundary. |
+| Human-controlled operations | Requires verification and approval before runbook-based remediation. |
+| Audit history | Records scans, approvals, dismissals, and executed remediation events. |
+
+## Features
+
+- Searchable risk inbox with severity, source, status, service, owner, and confidence context
+- Deterministic Decision Traces over PlatformPilot findings and demo risks
+- Raw evidence preserved separately from hypotheses and conclusions
+- Owner routing and service catalog
+- Approval queue and permission-aware controls
+- Runbooks with safety checks and rollback plans
+- GitHub Actions workflow-failure import
+- Terraform plan JSON risk detection
+- PlatformPilot contract validation and authenticated ingestion
+- Execution and audit history
+- Responsive investigation workspace
+
+## Technology Stack
+
+- Next.js and React
 - TypeScript
 - Vitest
 - GitHub Actions
-- CSS
-- Vercel-ready deployment structure
-
----
+- AJV and JSON Schema
+- Optional Clerk authentication
+- Neon/Postgres-ready persistence
+- Vercel-ready deployment
 
 ## Validation
 
-The project can be validated with:
-
 ```bash
+npm run test
 npm run lint
 npm run typecheck
-npm run test
 npm run build
 npm run contracts:validate
 ```
 
-Current validation coverage checks:
+Latest Decision Trace verification:
 
-- Risk engine output
-- Evidence availability
-- Runbook coverage
-- Integration catalog coverage
-- Service catalog coverage
-- Terraform plan risk import
-- GitHub Actions failure import
-- Decision Trace ordering, dependencies, confidence bounds, evidence use, and safety conclusion
-- PlatformPilot contract validation and approval-gated Decision Trace mapping
-
----
+- 11 test files passed
+- 36 tests passed
+- ESLint passed
+- TypeScript checking passed
+- Production build passed
+- Operational-finding contract validation passed
+- Browser interaction testing completed without console errors
 
 ## Local Development
 
-Install dependencies:
-
 ```bash
 npm install
-```
-
-Run locally:
-
-```bash
 npm run dev
 ```
 
-Open:
+Open [http://localhost:3000](http://localhost:3000).
 
-```bash
-http://localhost:3000
-```
-
----
-
-## Production Foundation
-
-The app now includes the first production-readiness layer:
-
-- Optional Clerk auth provider with demo fallback
-- Workspace and team role model
-- Owner/Admin approval permissions
-- Neon Postgres-ready schema
-- Repository layer with Postgres when `DATABASE_URL` is configured
-- Demo in-memory fallback when no database is configured
-- API routes for platform state, risk scans, and approval actions
-- Terraform plan JSON import with infrastructure risk detection
-- GitHub Actions workflow run import with failed deployment risk detection
-
-Environment variables for production mode:
+### Production environment variables
 
 ```bash
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
@@ -245,105 +199,57 @@ CLERK_SECRET_KEY=
 DATABASE_URL=
 DATABASE_SSL=true
 GITHUB_TOKEN=
+PLATFORM_PILOT_INGEST_TOKEN=
 ```
 
-`GITHUB_TOKEN` is optional for public repositories, but recommended for private repositories and higher API limits.
-
-Apply the Neon schema after setting `DATABASE_URL`:
+Apply the database schema after configuring `DATABASE_URL`:
 
 ```bash
 npm run db:apply
 ```
 
----
+## Additional Screenshots
 
-## Future Improvements
+### Approval and execution flow
 
-- Add AWS read-only integration
-- Add Kubernetes read-only cluster integration
-- Add Prometheus or Alertmanager webhook ingestion
-- Add pull request generation for approved remediations
-- Add Slack or email notifications for routed owners
-- Add billing and workspace support for SaaS readiness
+![Approval and execution flow](docs/screenshots/approval-execution-flow.png)
 
----
+Shows how an approved risk enters the execution gate and becomes part of the audit trail.
 
-## Screenshots
+### Owner routing
 
-### Dashboard / Risk Scan Complete
+![Owner routing](docs/screenshots/owner-routing.png)
 
-![Dashboard Risk Scan Complete](docs/screenshots/dashboard-risk-scan-complete.png)
+Summarizes urgent, waiting, approved, and completed work for each service owner.
 
-### Risk Inbox
+### Service catalog
 
-![Dashboard Risk Inbox](docs/screenshots/dashboard-risk-inbox.png)
+![Service catalog](docs/screenshots/service-catalog.png)
 
-### Evidence View
+Connects services with owners, environments, runtimes, integrations, health, and active risks.
 
-![Evidence View](docs/screenshots/evidence-view.png)
+### Integration status
 
-### Approval + Execution Flow
+![Integration status](docs/screenshots/integrations-status.png)
 
-![Approval Execution Flow](docs/screenshots/approval-execution-flow.png)
-
-### GitHub Actions Risk Import
-
-![GitHub Actions Risk Import](docs/screenshots/github-actions-risk-import.png)
-
-### Owner Routing
-
-![Owner Routing](docs/screenshots/owner-routing.png)
-
-### Service Catalog
-
-![Service Catalog](docs/screenshots/service-catalog.png)
-
-### Integrations Status
-
-![Integrations Status](docs/screenshots/integrations-status.png)
+Shows which infrastructure signal sources are connected, mocked, or awaiting configuration.
 
 ### Runbooks
 
 ![Runbooks](docs/screenshots/runbooks.png)
 
----
+Documents controlled remediation procedures, safety checks, and rollback plans.
 
 ## Skills Demonstrated
 
-### Platform Engineering
-
-- Service ownership
-- Runbooks
-- Approval workflows
-- Auditability
-- Operational safety
-
-### Cloud Engineering
-
-- AWS risk modeling
-- Infrastructure signal design
-- Cost, security, reliability, and deployment risk categories
-
-### DevOps
-
-- GitHub Actions CI
-- TypeScript validation
-- Build verification
-- Deployment-ready project structure
-
-### Product Engineering
-
-- SaaS-style dashboard
-- Workflow-driven UX
-- Explainable AI interface
-- Portfolio-ready documentation
-
----
+- Platform engineering: service ownership, runbooks, approvals, operational safety, and auditability
+- Cloud engineering: AWS, Kubernetes, Terraform, deployment, reliability, security, and cost risk modeling
+- DevOps: GitHub Actions, contract validation, testing, production builds, and deployment readiness
+- Product engineering: workflow-driven UX, explainable decision artifacts, responsive design, and portfolio documentation
 
 ## Author
 
-Olawale Azeez
-
-AWS Certified Solutions Architect - Associate  
+Olawale Azeez  
+AWS Certified Solutions Architect – Associate  
 AWS Certified Cloud Practitioner  
 Cloud Engineer | Platform Engineer | DevOps Engineer
