@@ -250,6 +250,7 @@ Documents controlled remediation procedures, safety checks, and rollback plans.
 ## Author
 
 Olawale Azeez  
-AWS Certified Solutions Architect – Associate  
+AWS Certified Developer Associate
+AWS Certified Solutions Architect -Associate  
 AWS Certified Cloud Practitioner  
 Cloud Engineer | Platform Engineer | DevOps Engineer
