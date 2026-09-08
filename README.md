@@ -172,10 +172,10 @@ npm run build
 npm run contracts:validate
 ```
 
-Latest Decision Trace verification:
+Latest verification:
 
-- 11 test files passed
-- 36 tests passed
+- 12 test files passed
+- 37 tests passed
 - ESLint passed
 - TypeScript checking passed
 - Production build passed
