@@ -32,7 +32,8 @@ const testMember: WorkspaceMember = {
 
 function createJsonRequest(
   body: unknown,
-  token: string | null = testToken
+  token: string | null = testToken,
+  requestId?: string
 ) {
   const headers = new Headers({
     "Content-Type": "application/json"
@@ -43,6 +44,10 @@ function createJsonRequest(
       "Authorization",
       `Bearer ${token}`
     );
+  }
+
+  if (requestId) {
+    headers.set("x-request-id", requestId);
   }
 
   return new Request(endpoint, {
@@ -143,9 +148,20 @@ describe("POST /api/platform-pilot/findings", () => {
   });
 
   it("imports a valid finding as an approval-gated risk", async () => {
+    const requestId =
+      "platform-pilot-test-request-001";
+
     const response = await POST(
-      createJsonRequest(validFinding)
+      createJsonRequest(
+        validFinding,
+        testToken,
+        requestId
+      )
     );
+
+    expect(
+      response.headers.get("x-request-id")
+    ).toBe(requestId);
 
     const body = (await response.json()) as {
       risks: InfrastructureRisk[];

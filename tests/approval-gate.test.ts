@@ -44,15 +44,22 @@ function createIngestRequest() {
 
 function createStatusRequest(
   riskId: string,
-  status: "approved" | "executed"
+  status: "approved" | "executed",
+  requestId?: string
 ) {
+  const headers = new Headers({
+    "Content-Type": "application/json"
+  });
+
+  if (requestId) {
+    headers.set("x-request-id", requestId);
+  }
+
   return new Request(
     `http://localhost/api/risks/${riskId}`,
     {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers,
       body: JSON.stringify({ status })
     }
   );
@@ -101,15 +108,25 @@ describe("approval-gated remediation workflow", () => {
       const riskId =
         ingestBody.platformPilotImport.riskId;
 
+      const blockedRequestId =
+        "approval-gate-request-001";
+
       const blockedExecution = await PATCH(
         createStatusRequest(
           riskId,
-          "executed"
+          "executed",
+          blockedRequestId
         ),
         createContext(riskId)
       );
 
       expect(blockedExecution.status).toBe(409);
+
+      expect(
+        blockedExecution.headers.get(
+          "x-request-id"
+        )
+      ).toBe(blockedRequestId);
 
       const blockedBody =
         (await blockedExecution.json()) as {
