@@ -148,8 +148,26 @@ flowchart TB
 - GitHub Actions workflow-failure import
 - Terraform plan JSON risk detection
 - PlatformPilot contract validation and authenticated ingestion
+- Structured JSON operational telemetry with request correlation IDs
 - Execution and audit history
 - Responsive investigation workspace
+
+## Operational Telemetry
+
+API operations emit structured JSON events for key ingestion and remediation decisions.
+
+Each event includes:
+
+- a request correlation ID
+- route and event name
+- outcome and HTTP status
+- risk or finding context when available
+- requested and current status where relevant
+- actor role and rejection or blocking reason
+
+Supported upstream `x-request-id` values are preserved and returned in API responses. When one is not supplied, CloudOps Command Center generates a request ID for correlation.
+
+This runtime telemetry complements the persisted audit and execution history rather than replacing it.
 
 ## Technology Stack
 
@@ -174,8 +192,8 @@ npm run contracts:validate
 
 Latest verification:
 
-- 12 test files passed
-- 37 tests passed
+- 13 test files passed
+- 42 tests passed
 - ESLint passed
 - TypeScript checking passed
 - Production build passed
