@@ -1,6 +1,21 @@
-import { getPool, isPostgresEnabled } from "@/lib/db";
-import { createDemoPlatformState, demoWorkspace } from "@/lib/platform-state";
-import type { AuditEvent, ExecutionEvent, GitHubActionsSummary, InfrastructureRisk, PlatformState, RiskStatus, TerraformPlanSummary, WorkspaceMember } from "@/lib/types";
+import {
+  getPool,
+  isPostgresEnabled,
+} from "@/lib/db";
+import {
+  createDemoPlatformState,
+  demoWorkspace,
+} from "@/lib/platform-state";
+import type {
+  AuditEvent,
+  ExecutionEvent,
+  GitHubActionsSummary,
+  InfrastructureRisk,
+  PlatformState,
+  RiskStatus,
+  TerraformPlanSummary,
+  WorkspaceMember,
+} from "@/lib/types";
 
 let memoryState = createDemoPlatformState();
 
@@ -8,36 +23,81 @@ function nowLabel() {
   return "Just now";
 }
 
-export async function getPlatformState(member: WorkspaceMember): Promise<PlatformState> {
+function createRepositoryRequestId() {
+  return `repository-${Date.now()}`;
+}
+
+export async function getPlatformState(
+  member: WorkspaceMember,
+): Promise<PlatformState> {
   if (!isPostgresEnabled()) {
-    memoryState = { ...memoryState, currentMember: member };
+    memoryState = {
+      ...memoryState,
+      currentMember: member,
+    };
+
     return memoryState;
   }
 
   const pool = getPool();
+
   if (!pool) {
-    return { ...memoryState, currentMember: member };
+    return {
+      ...memoryState,
+      currentMember: member,
+    };
   }
 
   await ensureSeedData(member);
 
-  const [risksResult, auditResult, executionResult] = await Promise.all([
-    pool.query("select * from infrastructure_risks where workspace_id = $1 order by detected_at desc", [member.workspaceId]),
-    pool.query("select * from audit_events where workspace_id = $1 order by created_at desc limit 50", [member.workspaceId]),
-    pool.query("select * from execution_events where workspace_id = $1 order by created_at desc limit 50", [member.workspaceId]),
+  const [
+    risksResult,
+    auditResult,
+    executionResult,
+  ] = await Promise.all([
+    pool.query(
+      `select *
+       from infrastructure_risks
+       where workspace_id = $1
+       order by detected_at desc`,
+      [member.workspaceId],
+    ),
+    pool.query(
+      `select *
+       from audit_events
+       where workspace_id = $1
+       order by created_at desc
+       limit 50`,
+      [member.workspaceId],
+    ),
+    pool.query(
+      `select *
+       from execution_events
+       where workspace_id = $1
+       order by created_at desc
+       limit 50`,
+      [member.workspaceId],
+    ),
   ]);
 
   return {
     workspace: demoWorkspace,
     currentMember: member,
     risks: risksResult.rows.map(mapRiskRow),
-    auditEvents: auditResult.rows.map(mapAuditRow),
-    executionEvents: executionResult.rows.map(mapExecutionRow),
+    auditEvents:
+      auditResult.rows.map(mapAuditRow),
+    executionEvents:
+      executionResult.rows.map(
+        mapExecutionRow,
+      ),
   };
 }
 
-export async function resetRiskScan(member: WorkspaceMember): Promise<PlatformState> {
-  const freshState = createDemoPlatformState(member);
+export async function resetRiskScan(
+  member: WorkspaceMember,
+): Promise<PlatformState> {
+  const freshState =
+    createDemoPlatformState(member);
 
   if (!isPostgresEnabled()) {
     memoryState = {
@@ -49,69 +109,195 @@ export async function resetRiskScan(member: WorkspaceMember): Promise<PlatformSt
           riskTitle: "Risk scan reset",
           action: "scan",
           actor: "CloudOps AI",
-          detail: `${freshState.risks.length} infrastructure risks restored for demo review.`,
+          detail:
+            `${freshState.risks.length} infrastructure risks restored for demo review.`,
           createdAt: nowLabel(),
         },
       ],
     };
+
     return memoryState;
   }
 
   const pool = getPool();
+
   if (!pool) {
     return freshState;
   }
 
   await ensureSeedData(member);
-  await pool.query("delete from infrastructure_risks where workspace_id = $1", [member.workspaceId]);
-  await Promise.all(freshState.risks.map((risk) => upsertRisk(member.workspaceId, risk)));
-  await insertAuditEvent(member.workspaceId, {
-    id: `audit-scan-reset-${Date.now()}`,
-    riskId: "scan",
-    riskTitle: "Risk scan reset",
-    action: "scan",
-    actor: "CloudOps AI",
-    detail: `${freshState.risks.length} infrastructure risks restored for review.`,
-    createdAt: nowLabel(),
-  });
+
+  await pool.query(
+    `delete from infrastructure_risks
+     where workspace_id = $1`,
+    [member.workspaceId],
+  );
+
+  await Promise.all(
+    freshState.risks.map((risk) =>
+      upsertRisk(
+        member.workspaceId,
+        risk,
+      ),
+    ),
+  );
+
+  await insertAuditEvent(
+    member.workspaceId,
+    {
+      id: `audit-scan-reset-${Date.now()}`,
+      riskId: "scan",
+      riskTitle: "Risk scan reset",
+      action: "scan",
+      actor: "CloudOps AI",
+      detail:
+        `${freshState.risks.length} infrastructure risks restored for review.`,
+      createdAt: nowLabel(),
+    },
+  );
 
   return getPlatformState(member);
 }
 
-export async function updateRisk(member: WorkspaceMember, riskId: string, status: RiskStatus): Promise<PlatformState> {
-  const existingState = await getPlatformState(member);
-  const risk = existingState.risks.find((item) => item.id === riskId);
+export async function updateRisk(
+  member: WorkspaceMember,
+  riskId: string,
+  status: RiskStatus,
+  requestId = createRepositoryRequestId(),
+): Promise<PlatformState> {
+  const existingState =
+    await getPlatformState(member);
+
+  const risk = existingState.risks.find(
+    (item) => item.id === riskId,
+  );
 
   if (!risk) {
     return existingState;
   }
 
-  const updatedRisk = { ...risk, status };
-  const auditEvent = buildAuditEvent(member, updatedRisk, status);
-  const executionEvent = status === "executed" ? buildExecutionEvent(updatedRisk) : null;
+  const updatedRisk = {
+    ...risk,
+    status,
+  };
+
+  const auditEvent = buildAuditEvent(
+    member,
+    updatedRisk,
+    status,
+    requestId,
+  );
+
+  const approvalEvent =
+    existingState.auditEvents.find(
+      (event) =>
+        event.riskId === riskId &&
+        event.action === "approved",
+    );
+
+  const executionEvent =
+    status === "executed"
+      ? buildExecutionEvent(
+          member,
+          risk,
+          updatedRisk,
+          approvalEvent,
+          requestId,
+        )
+      : null;
 
   if (!isPostgresEnabled()) {
     memoryState = {
       ...existingState,
-      risks: existingState.risks.map((item) => (item.id === riskId ? updatedRisk : item)),
-      auditEvents: [auditEvent, ...existingState.auditEvents],
-      executionEvents: executionEvent ? [executionEvent, ...existingState.executionEvents] : existingState.executionEvents,
+      risks: existingState.risks.map(
+        (item) =>
+          item.id === riskId
+            ? updatedRisk
+            : item,
+      ),
+      auditEvents: [
+        auditEvent,
+        ...existingState.auditEvents,
+      ],
+      executionEvents: executionEvent
+        ? [
+            executionEvent,
+            ...existingState.executionEvents,
+          ]
+        : existingState.executionEvents,
     };
+
     return memoryState;
   }
 
   const pool = getPool();
+
   if (!pool) {
     return existingState;
   }
 
-  await pool.query("update infrastructure_risks set status = $1, updated_at = now() where workspace_id = $2 and id = $3", [status, member.workspaceId, riskId]);
-  await insertAuditEvent(member.workspaceId, auditEvent);
+  await pool.query(
+    `update infrastructure_risks
+     set status = $1,
+         updated_at = now()
+     where workspace_id = $2
+       and id = $3`,
+    [
+      status,
+      member.workspaceId,
+      riskId,
+    ],
+  );
+
+  await insertAuditEvent(
+    member.workspaceId,
+    auditEvent,
+  );
 
   if (executionEvent) {
+    const approvedAt =
+      executionEvent.approvedAt ===
+      "Unknown"
+        ? null
+        : executionEvent.approvedAt;
+
     await pool.query(
-      `insert into execution_events (id, workspace_id, risk_id, title, owner, mode, command_preview, steps)
-       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      `insert into execution_events (
+        id,
+        workspace_id,
+        risk_id,
+        title,
+        owner,
+        mode,
+        command_preview,
+        request_id,
+        requested_by,
+        approved_by,
+        approved_at,
+        approval_request_id,
+        before_status,
+        after_status,
+        outcome,
+        steps
+      )
+      values (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        $12,
+        $13,
+        $14,
+        $15,
+        $16::jsonb
+      )`,
       [
         executionEvent.id,
         member.workspaceId,
@@ -119,8 +305,20 @@ export async function updateRisk(member: WorkspaceMember, riskId: string, status
         executionEvent.title,
         executionEvent.owner,
         executionEvent.mode,
-        executionEvent.commandPreview ?? null,
-        JSON.stringify(executionEvent.steps),
+        executionEvent.commandPreview ??
+          null,
+        executionEvent.requestId,
+        executionEvent.requestedBy,
+        executionEvent.approvedBy,
+        approvedAt,
+        executionEvent.approvalRequestId ??
+          null,
+        executionEvent.beforeStatus,
+        executionEvent.afterStatus,
+        executionEvent.outcome,
+        JSON.stringify(
+          executionEvent.steps,
+        ),
       ],
     );
   }
@@ -128,33 +326,50 @@ export async function updateRisk(member: WorkspaceMember, riskId: string, status
   return getPlatformState(member);
 }
 
-export async function importTerraformRisks(member: WorkspaceMember, risks: InfrastructureRisk[], summary: TerraformPlanSummary): Promise<PlatformState> {
+export async function importTerraformRisks(
+  member: WorkspaceMember,
+  risks: InfrastructureRisk[],
+  summary: TerraformPlanSummary,
+): Promise<PlatformState> {
   return importDetectedRisks(
     member,
     risks,
     {
       id: `audit-terraform-import-${Date.now()}`,
       riskId: "terraform-import",
-      riskTitle: "Terraform plan imported",
+      riskTitle:
+        "Terraform plan imported",
       action: "scan",
       actor: member.name,
-      detail: `${summary.totalChanges} Terraform changes reviewed. ${summary.generatedRisks} risks generated for owner approval.`,
+      detail:
+        `${summary.totalChanges} Terraform changes reviewed. ` +
+        `${summary.generatedRisks} risks generated for owner approval.`,
       createdAt: nowLabel(),
     },
   );
 }
 
-export async function importGitHubActionsRisks(member: WorkspaceMember, risks: InfrastructureRisk[], summary: GitHubActionsSummary): Promise<PlatformState> {
+export async function importGitHubActionsRisks(
+  member: WorkspaceMember,
+  risks: InfrastructureRisk[],
+  summary: GitHubActionsSummary,
+): Promise<PlatformState> {
   return importDetectedRisks(
     member,
     risks,
     {
-      id: `audit-github-actions-import-${Date.now()}`,
+      id:
+        `audit-github-actions-import-` +
+        `${Date.now()}`,
       riskId: "github-actions-import",
-      riskTitle: "GitHub Actions runs imported",
+      riskTitle:
+        "GitHub Actions runs imported",
       action: "scan",
       actor: member.name,
-      detail: `${summary.totalRuns} workflow runs reviewed for ${summary.repository}. ${summary.generatedRisks} failed runs generated risks for owner approval.`,
+      detail:
+        `${summary.totalRuns} workflow runs reviewed for ` +
+        `${summary.repository}. ` +
+        `${summary.generatedRisks} failed runs generated risks for owner approval.`,
       createdAt: nowLabel(),
     },
   );
@@ -162,13 +377,15 @@ export async function importGitHubActionsRisks(member: WorkspaceMember, risks: I
 
 export async function importPlatformPilotRisk(
   member: WorkspaceMember,
-  risk: InfrastructureRisk
+  risk: InfrastructureRisk,
 ): Promise<PlatformState> {
   return importDetectedRisks(
     member,
     [risk],
     {
-      id: `audit-platform-pilot-import-${risk.id}-${Date.now()}`,
+      id:
+        `audit-platform-pilot-import-` +
+        `${risk.id}-${Date.now()}`,
       riskId: risk.id,
       riskTitle: risk.title,
       action: "scan",
@@ -176,80 +393,201 @@ export async function importPlatformPilotRisk(
       detail:
         `PlatformPilot finding imported for ${risk.service}. ` +
         `Risk routed to ${risk.routedTo} and held for approval.`,
-      createdAt: nowLabel()
-    }
+      createdAt: nowLabel(),
+    },
   );
 }
 
-async function importDetectedRisks(member: WorkspaceMember, risks: InfrastructureRisk[], auditEvent: AuditEvent): Promise<PlatformState> {
-  const existingState = await getPlatformState(member);
+async function importDetectedRisks(
+  member: WorkspaceMember,
+  risks: InfrastructureRisk[],
+  auditEvent: AuditEvent,
+): Promise<PlatformState> {
+  const existingState =
+    await getPlatformState(member);
 
   if (!isPostgresEnabled()) {
-    const existingById = new Map(existingState.risks.map((risk) => [risk.id, risk]));
-    risks.forEach((risk) => existingById.set(risk.id, risk));
+    const existingById = new Map(
+      existingState.risks.map(
+        (risk) => [risk.id, risk],
+      ),
+    );
+
+    risks.forEach((risk) =>
+      existingById.set(risk.id, risk),
+    );
 
     memoryState = {
       ...existingState,
-      risks: Array.from(existingById.values()),
-      auditEvents: [auditEvent, ...existingState.auditEvents],
+      risks: Array.from(
+        existingById.values(),
+      ),
+      auditEvents: [
+        auditEvent,
+        ...existingState.auditEvents,
+      ],
     };
+
     return memoryState;
   }
 
   const pool = getPool();
+
   if (!pool) {
     return existingState;
   }
 
   await ensureSeedData(member);
-  await Promise.all(risks.map((risk) => upsertRisk(member.workspaceId, risk)));
-  await insertAuditEvent(member.workspaceId, auditEvent);
+
+  await Promise.all(
+    risks.map((risk) =>
+      upsertRisk(
+        member.workspaceId,
+        risk,
+      ),
+    ),
+  );
+
+  await insertAuditEvent(
+    member.workspaceId,
+    auditEvent,
+  );
 
   return getPlatformState(member);
 }
 
-async function ensureSeedData(member: WorkspaceMember) {
+async function ensureSeedData(
+  member: WorkspaceMember,
+) {
   const pool = getPool();
+
   if (!pool) {
     return;
   }
 
   await pool.query(
-    `insert into workspaces (id, name, plan)
-     values ($1, $2, $3)
-     on conflict (id) do update set name = excluded.name, plan = excluded.plan`,
-    [demoWorkspace.id, demoWorkspace.name, demoWorkspace.plan],
+    `insert into workspaces (
+      id,
+      name,
+      plan
+    )
+    values ($1, $2, $3)
+    on conflict (id)
+    do update set
+      name = excluded.name,
+      plan = excluded.plan`,
+    [
+      demoWorkspace.id,
+      demoWorkspace.name,
+      demoWorkspace.plan,
+    ],
   );
 
   await pool.query(
-    `insert into workspace_members (id, workspace_id, email, name, role)
-     values ($1, $2, $3, $4, $5)
-     on conflict (workspace_id, email) do update set name = excluded.name, role = excluded.role`,
-    [member.id, member.workspaceId, member.email, member.name, member.role],
+    `insert into workspace_members (
+      id,
+      workspace_id,
+      email,
+      name,
+      role
+    )
+    values ($1, $2, $3, $4, $5)
+    on conflict (workspace_id, email)
+    do update set
+      name = excluded.name,
+      role = excluded.role`,
+    [
+      member.id,
+      member.workspaceId,
+      member.email,
+      member.name,
+      member.role,
+    ],
   );
 
-  const countResult = await pool.query("select count(*)::int as count from infrastructure_risks where workspace_id = $1", [member.workspaceId]);
+  const countResult = await pool.query(
+    `select count(*)::int as count
+     from infrastructure_risks
+     where workspace_id = $1`,
+    [member.workspaceId],
+  );
 
   if (countResult.rows[0]?.count === 0) {
-    const demoState = createDemoPlatformState(member);
-    await Promise.all(demoState.risks.map((risk) => upsertRisk(member.workspaceId, risk)));
-    await Promise.all(demoState.auditEvents.map((event) => insertAuditEvent(member.workspaceId, event)));
+    const demoState =
+      createDemoPlatformState(member);
+
+    await Promise.all(
+      demoState.risks.map((risk) =>
+        upsertRisk(
+          member.workspaceId,
+          risk,
+        ),
+      ),
+    );
+
+    await Promise.all(
+      demoState.auditEvents.map(
+        (event) =>
+          insertAuditEvent(
+            member.workspaceId,
+            event,
+          ),
+      ),
+    );
   }
 }
 
-async function upsertRisk(workspaceId: string, risk: InfrastructureRisk) {
+async function upsertRisk(
+  workspaceId: string,
+  risk: InfrastructureRisk,
+) {
   const pool = getPool();
+
   if (!pool) {
     return;
   }
 
   await pool.query(
-    `insert into infrastructure_risks
-      (id, workspace_id, source, service, owner, title, detail, category, severity, evidence, detected_at, impact, recommendation, status, approval_required, routed_to)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13::jsonb, $14, $15, $16)
-     on conflict (id) do update set
-       status = excluded.status,
-       updated_at = now()`,
+    `insert into infrastructure_risks (
+      id,
+      workspace_id,
+      source,
+      service,
+      owner,
+      title,
+      detail,
+      category,
+      severity,
+      evidence,
+      detected_at,
+      impact,
+      recommendation,
+      status,
+      approval_required,
+      routed_to
+    )
+    values (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      $6,
+      $7,
+      $8,
+      $9,
+      $10::jsonb,
+      $11,
+      $12,
+      $13::jsonb,
+      $14,
+      $15,
+      $16
+    )
+    on conflict (id)
+    do update set
+      status = excluded.status,
+      updated_at = now()`,
     [
       risk.id,
       workspaceId,
@@ -263,7 +601,9 @@ async function upsertRisk(workspaceId: string, risk: InfrastructureRisk) {
       JSON.stringify(risk.evidence),
       risk.detectedAt,
       risk.impact,
-      JSON.stringify(risk.recommendation),
+      JSON.stringify(
+        risk.recommendation,
+      ),
       risk.status,
       risk.approvalRequired,
       risk.routedTo,
@@ -271,94 +611,271 @@ async function upsertRisk(workspaceId: string, risk: InfrastructureRisk) {
   );
 }
 
-async function insertAuditEvent(workspaceId: string, event: AuditEvent) {
+async function insertAuditEvent(
+  workspaceId: string,
+  event: AuditEvent,
+) {
   const pool = getPool();
+
   if (!pool) {
     return;
   }
 
   await pool.query(
-    `insert into audit_events (id, workspace_id, risk_id, risk_title, action, actor, detail)
-     values ($1, $2, $3, $4, $5, $6, $7)
-     on conflict (id) do nothing`,
-    [event.id, workspaceId, event.riskId, event.riskTitle, event.action, event.actor, event.detail],
+    `insert into audit_events (
+      id,
+      workspace_id,
+      risk_id,
+      risk_title,
+      action,
+      actor,
+      detail,
+      request_id
+    )
+    values (
+      $1,
+      $2,
+      $3,
+      $4,
+      $5,
+      $6,
+      $7,
+      $8
+    )
+    on conflict (id)
+    do nothing`,
+    [
+      event.id,
+      workspaceId,
+      event.riskId,
+      event.riskTitle,
+      event.action,
+      event.actor,
+      event.detail,
+      event.requestId ?? null,
+    ],
   );
 }
 
-function buildAuditEvent(member: WorkspaceMember, risk: InfrastructureRisk, status: RiskStatus): AuditEvent {
-  const detailByStatus: Record<RiskStatus, string> = {
-    open: `${risk.title} was reopened for review.`,
-    needs_approval: `${risk.title} is waiting for approval.`,
-    approved: `${risk.recommendation.executionMode.replace("_", " ")} remediation approved for ${risk.routedTo}. Execution is queued behind the safety gate.`,
-    dismissed: `Risk dismissed after review. No execution will be triggered for ${risk.service}.`,
-    executed: `${risk.recommendation.executionMode.replace("_", " ")} remediation executed in simulation mode with audit evidence captured.`,
+function buildAuditEvent(
+  member: WorkspaceMember,
+  risk: InfrastructureRisk,
+  status: RiskStatus,
+  requestId: string,
+): AuditEvent {
+  const detailByStatus: Record<
+    RiskStatus,
+    string
+  > = {
+    open:
+      `${risk.title} was reopened for review.`,
+    needs_approval:
+      `${risk.title} is waiting for approval.`,
+    approved:
+      `${risk.recommendation.executionMode.replace("_", " ")} ` +
+      `remediation approved for ${risk.routedTo}. ` +
+      `Execution is queued behind the safety gate.`,
+    dismissed:
+      `Risk dismissed after review. ` +
+      `No execution will be triggered for ${risk.service}.`,
+    executed:
+      `${risk.recommendation.executionMode.replace("_", " ")} ` +
+      `remediation executed in simulation mode with audit evidence captured.`,
   };
 
   return {
-    id: `audit-${risk.id}-${status}-${Date.now()}`,
+    id:
+      `audit-${risk.id}-${status}-` +
+      `${Date.now()}`,
     riskId: risk.id,
     riskTitle: risk.title,
-    action: status === "approved" || status === "dismissed" || status === "executed" ? status : "scan",
+    action:
+      status === "approved" ||
+      status === "dismissed" ||
+      status === "executed"
+        ? status
+        : "scan",
     actor: member.name,
     detail: detailByStatus[status],
-    createdAt: nowLabel(),
+    requestId,
+    createdAt: new Date().toISOString(),
   };
 }
 
-function buildExecutionEvent(risk: InfrastructureRisk): ExecutionEvent {
+function buildExecutionEvent(
+  member: WorkspaceMember,
+  previousRisk: InfrastructureRisk,
+  updatedRisk: InfrastructureRisk,
+  approvalEvent: AuditEvent | undefined,
+  requestId: string,
+): ExecutionEvent {
   return {
-    id: `execution-${risk.id}-${Date.now()}`,
-    riskId: risk.id,
-    title: risk.title,
-    owner: risk.routedTo,
-    mode: risk.recommendation.executionMode,
-    commandPreview: risk.recommendation.commandPreview,
-    steps: ["Approval token verified", "Safety checks passed", "Command preview recorded", "Simulated remediation completed"],
-    createdAt: nowLabel(),
+    id:
+      `execution-${updatedRisk.id}-` +
+      `${Date.now()}`,
+    riskId: updatedRisk.id,
+    title: updatedRisk.title,
+    owner: updatedRisk.routedTo,
+    mode:
+      updatedRisk.recommendation
+        .executionMode,
+    commandPreview:
+      updatedRisk.recommendation
+        .commandPreview,
+
+    requestId,
+    requestedBy: member.name,
+
+    approvedBy:
+      approvalEvent?.actor ??
+      "Unknown approver",
+
+    approvedAt:
+      approvalEvent?.createdAt ??
+      "Unknown",
+
+    approvalRequestId:
+      approvalEvent?.requestId,
+
+    beforeStatus: previousRisk.status,
+    afterStatus: updatedRisk.status,
+    outcome: "succeeded",
+
+    steps: [
+      "Approval evidence verified",
+      "Execution permission verified",
+      "Safety checks passed",
+      "Command preview recorded",
+      "Simulated remediation completed",
+      "Execution evidence persisted",
+    ],
+
+    createdAt:
+      new Date().toISOString(),
   };
 }
 
-function mapRiskRow(row: Record<string, unknown>): InfrastructureRisk {
+function mapRiskRow(
+  row: Record<string, unknown>,
+): InfrastructureRisk {
   return {
     id: String(row.id),
-    source: row.source as InfrastructureRisk["source"],
+    source:
+      row.source as InfrastructureRisk["source"],
     service: String(row.service),
     owner: String(row.owner),
     title: String(row.title),
     detail: String(row.detail),
-    category: row.category as InfrastructureRisk["category"],
-    severity: row.severity as InfrastructureRisk["severity"],
-    evidence: Array.isArray(row.evidence) ? row.evidence.map(String) : [],
-    detectedAt: new Date(String(row.detected_at)).toISOString(),
+    category:
+      row.category as InfrastructureRisk["category"],
+    severity:
+      row.severity as InfrastructureRisk["severity"],
+    evidence: Array.isArray(row.evidence)
+      ? row.evidence.map(String)
+      : [],
+    detectedAt:
+      new Date(
+        String(row.detected_at),
+      ).toISOString(),
     impact: String(row.impact),
-    recommendation: row.recommendation as InfrastructureRisk["recommendation"],
-    status: row.status as RiskStatus,
+    recommendation:
+      row.recommendation as InfrastructureRisk["recommendation"],
+    status:
+      row.status as RiskStatus,
     approvalRequired: true,
-    routedTo: String(row.routed_to),
+    routedTo:
+      String(row.routed_to),
   };
 }
 
-function mapAuditRow(row: Record<string, unknown>): AuditEvent {
+function mapAuditRow(
+  row: Record<string, unknown>,
+): AuditEvent {
   return {
     id: String(row.id),
     riskId: String(row.risk_id),
-    riskTitle: String(row.risk_title),
-    action: row.action as AuditEvent["action"],
+    riskTitle:
+      String(row.risk_title),
+    action:
+      row.action as AuditEvent["action"],
     actor: String(row.actor),
     detail: String(row.detail),
-    createdAt: new Date(String(row.created_at)).toLocaleString(),
+    requestId: row.request_id
+      ? String(row.request_id)
+      : undefined,
+    createdAt:
+      new Date(
+        String(row.created_at),
+      ).toISOString(),
   };
 }
 
-function mapExecutionRow(row: Record<string, unknown>): ExecutionEvent {
+function mapExecutionRow(
+  row: Record<string, unknown>,
+): ExecutionEvent {
   return {
     id: String(row.id),
     riskId: String(row.risk_id),
     title: String(row.title),
     owner: String(row.owner),
-    mode: row.mode as ExecutionEvent["mode"],
-    commandPreview: row.command_preview ? String(row.command_preview) : undefined,
-    steps: Array.isArray(row.steps) ? row.steps.map(String) : [],
-    createdAt: new Date(String(row.created_at)).toLocaleString(),
+    mode:
+      row.mode as ExecutionEvent["mode"],
+    commandPreview:
+      row.command_preview
+        ? String(row.command_preview)
+        : undefined,
+
+    requestId:
+      row.request_id
+        ? String(row.request_id)
+        : "legacy-execution",
+
+    requestedBy:
+      row.requested_by
+        ? String(row.requested_by)
+        : "Unknown actor",
+
+    approvedBy:
+      row.approved_by
+        ? String(row.approved_by)
+        : "Unknown approver",
+
+    approvedAt:
+      row.approved_at
+        ? new Date(
+            String(row.approved_at),
+          ).toISOString()
+        : "Unknown",
+
+    approvalRequestId:
+      row.approval_request_id
+        ? String(
+            row.approval_request_id,
+          )
+        : undefined,
+
+    beforeStatus:
+      row.before_status
+        ? (row.before_status as RiskStatus)
+        : "approved",
+
+    afterStatus:
+      row.after_status
+        ? (row.after_status as RiskStatus)
+        : "executed",
+
+    outcome:
+      row.outcome
+        ? (row.outcome as ExecutionEvent["outcome"])
+        : "succeeded",
+
+    steps: Array.isArray(row.steps)
+      ? row.steps.map(String)
+      : [],
+
+    createdAt:
+      new Date(
+        String(row.created_at),
+      ).toISOString(),
   };
 }

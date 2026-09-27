@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCurrentMember } from "@/lib/auth";
-import { canApprove, canExecute } from "@/lib/permissions";
+import {
+  canApprove,
+  canExecute,
+} from "@/lib/permissions";
 import {
   getPlatformState,
-  updateRisk
+  updateRisk,
 } from "@/lib/repository";
 import {
   attachRequestId,
   emitOperationalEvent,
-  getRequestId
+  getRequestId,
 } from "@/lib/telemetry";
 import type { RiskStatus } from "@/lib/types";
 
@@ -23,12 +26,12 @@ const route = "/api/risks/[riskId]";
 const allowedStatuses: RiskStatus[] = [
   "approved",
   "dismissed",
-  "executed"
+  "executed",
 ];
 
 export async function PATCH(
   request: Request,
-  context: RouteContext
+  context: RouteContext,
 ) {
   const requestId = getRequestId(request);
   const member = await getCurrentMember();
@@ -39,7 +42,10 @@ export async function PATCH(
 
   const status = body.status;
 
-  if (!status || !allowedStatuses.includes(status)) {
+  if (
+    !status ||
+    !allowedStatuses.includes(status)
+  ) {
     emitOperationalEvent("warn", {
       event: "risk.status.rejected",
       requestId,
@@ -48,15 +54,19 @@ export async function PATCH(
       statusCode: 400,
       requestedStatus: status,
       actorRole: member.role,
-      reason: "unsupported_status"
+      reason: "unsupported_status",
     });
 
     return attachRequestId(
       NextResponse.json(
-        { error: "Unsupported risk status" },
-        { status: 400 }
+        {
+          error: "Unsupported risk status",
+        },
+        {
+          status: 400,
+        },
       ),
-      requestId
+      requestId,
     );
   }
 
@@ -73,18 +83,20 @@ export async function PATCH(
       statusCode: 403,
       requestedStatus: status,
       actorRole: member.role,
-      reason: "approval_permission_denied"
+      reason: "approval_permission_denied",
     });
 
     return attachRequestId(
       NextResponse.json(
         {
           error:
-            "Role cannot approve or dismiss risks"
+            "Role cannot approve or dismiss risks",
         },
-        { status: 403 }
+        {
+          status: 403,
+        },
       ),
-      requestId
+      requestId,
     );
   }
 
@@ -100,18 +112,20 @@ export async function PATCH(
       statusCode: 403,
       requestedStatus: status,
       actorRole: member.role,
-      reason: "execution_permission_denied"
+      reason: "execution_permission_denied",
     });
 
     return attachRequestId(
       NextResponse.json(
         {
           error:
-            "Role cannot execute remediations"
+            "Role cannot execute remediations",
         },
-        { status: 403 }
+        {
+          status: 403,
+        },
       ),
-      requestId
+      requestId,
     );
   }
 
@@ -121,7 +135,7 @@ export async function PATCH(
     await getPlatformState(member);
 
   const risk = currentState.risks.find(
-    (item) => item.id === riskId
+    (item) => item.id === riskId,
   );
 
   if (!risk) {
@@ -134,15 +148,19 @@ export async function PATCH(
       riskId,
       requestedStatus: status,
       actorRole: member.role,
-      reason: "risk_not_found"
+      reason: "risk_not_found",
     });
 
     return attachRequestId(
       NextResponse.json(
-        { error: "Risk not found" },
-        { status: 404 }
+        {
+          error: "Risk not found",
+        },
+        {
+          status: 404,
+        },
       ),
-      requestId
+      requestId,
     );
   }
 
@@ -160,25 +178,28 @@ export async function PATCH(
       requestedStatus: status,
       currentStatus: risk.status,
       actorRole: member.role,
-      reason: "approval_required"
+      reason: "approval_required",
     });
 
     return attachRequestId(
       NextResponse.json(
         {
           error:
-            "Risk must be approved before execution"
+            "Risk must be approved before execution",
         },
-        { status: 409 }
+        {
+          status: 409,
+        },
       ),
-      requestId
+      requestId,
     );
   }
 
   const state = await updateRisk(
     member,
     riskId,
-    status
+    status,
+    requestId,
   );
 
   emitOperationalEvent("info", {
@@ -190,11 +211,11 @@ export async function PATCH(
     riskId,
     requestedStatus: status,
     currentStatus: status,
-    actorRole: member.role
+    actorRole: member.role,
   });
 
   return attachRequestId(
     NextResponse.json(state),
-    requestId
+    requestId,
   );
 }
