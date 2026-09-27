@@ -1,6 +1,15 @@
-export type SignalSource = "github" | "aws" | "kubernetes" | "terraform" | "monitoring";
+export type SignalSource =
+  | "github"
+  | "aws"
+  | "kubernetes"
+  | "terraform"
+  | "monitoring";
 
-export type UserRole = "owner" | "admin" | "engineer" | "viewer";
+export type UserRole =
+  | "owner"
+  | "admin"
+  | "engineer"
+  | "viewer";
 
 export type Workspace = {
   id: string;
@@ -16,11 +25,24 @@ export type WorkspaceMember = {
   role: UserRole;
 };
 
-export type RiskCategory = "reliability" | "security" | "cost" | "deployment";
+export type RiskCategory =
+  | "reliability"
+  | "security"
+  | "cost"
+  | "deployment";
 
-export type RiskSeverity = "critical" | "high" | "medium" | "low";
+export type RiskSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low";
 
-export type RiskStatus = "open" | "needs_approval" | "approved" | "executed" | "dismissed";
+export type RiskStatus =
+  | "open"
+  | "needs_approval"
+  | "approved"
+  | "executed"
+  | "dismissed";
 
 export type InfrastructureSignal = {
   id: string;
@@ -38,7 +60,11 @@ export type InfrastructureSignal = {
 export type Remediation = {
   summary: string;
   steps: string[];
-  executionMode: "manual" | "pull_request" | "workflow" | "simulated";
+  executionMode:
+    | "manual"
+    | "pull_request"
+    | "workflow"
+    | "simulated";
   commandPreview?: string;
 };
 
@@ -62,14 +88,15 @@ export type DecisionTrace = {
   conclusionId: string;
 };
 
-export type InfrastructureRisk = InfrastructureSignal & {
-  impact: string;
-  decisionTrace?: DecisionTrace;
-  recommendation: Remediation;
-  status: RiskStatus;
-  approvalRequired: true;
-  routedTo: string;
-};
+export type InfrastructureRisk =
+  InfrastructureSignal & {
+    impact: string;
+    decisionTrace?: DecisionTrace;
+    recommendation: Remediation;
+    status: RiskStatus;
+    approvalRequired: true;
+    routedTo: string;
+  };
 
 export type RiskSummary = {
   total: number;
@@ -86,11 +113,21 @@ export type AuditEvent = {
   id: string;
   riskId: string;
   riskTitle: string;
-  action: "approved" | "dismissed" | "executed" | "scan";
+  action:
+    | "approved"
+    | "dismissed"
+    | "executed"
+    | "scan";
   actor: string;
   detail: string;
+  requestId?: string;
   createdAt: string;
 };
+
+export type ExecutionOutcome =
+  | "succeeded"
+  | "failed"
+  | "blocked";
 
 export type ExecutionEvent = {
   id: string;
@@ -99,6 +136,18 @@ export type ExecutionEvent = {
   owner: string;
   mode: Remediation["executionMode"];
   commandPreview?: string;
+
+  requestId: string;
+  requestedBy: string;
+
+  approvedBy: string;
+  approvedAt: string;
+  approvalRequestId?: string;
+
+  beforeStatus: RiskStatus;
+  afterStatus: RiskStatus;
+  outcome: ExecutionOutcome;
+
   steps: string[];
   createdAt: string;
 };
@@ -114,7 +163,10 @@ export type Runbook = {
   rollbackPlan: string[];
 };
 
-export type IntegrationStatus = "connected" | "mock" | "not_connected";
+export type IntegrationStatus =
+  | "connected"
+  | "mock"
+  | "not_connected";
 
 export type Integration = {
   id: SignalSource;
@@ -125,14 +177,21 @@ export type Integration = {
   nextStep: string;
 };
 
-export type ServiceHealth = "healthy" | "degraded" | "critical" | "watch";
+export type ServiceHealth =
+  | "healthy"
+  | "degraded"
+  | "critical"
+  | "watch";
 
 export type ServiceCatalogItem = {
   id: string;
   name: string;
   owner: string;
   runtime: string;
-  environment: "production" | "staging" | "shared";
+  environment:
+    | "production"
+    | "staging"
+    | "shared";
   health: ServiceHealth;
   lastChange: string;
   integrations: SignalSource[];
