@@ -211,24 +211,34 @@ npm run contracts:validate
 git diff --check
 ```
 
-Verified locally on the workspace-isolation changes on 20 October 2026 (hosted authentication evidence below was captured for the preceding authentication PR):
+Verified on the workspace-isolation changes on 20 October 2026. Authentication screenshots were captured for the preceding authentication PR; workspace-isolation screenshots below show the new preview using a separate Neon database branch.
 
 | Check | Result |
 | --- | --- |
 | Automated suite | 132 tests passed across 19 files |
 | Authentication regression subset | 77 tests passed across 3 files, included in the 132 total |
 | PostgreSQL isolation and migration suite | 12 tests passed against a disposable PostgreSQL 17 database |
-| TypeScript and production build | Passed (webpack build in an isolated source copy) |
+| TypeScript and production build | Passed; webpack in an isolated source copy and the standard build in the working checkout |
 | Operational-finding contract validation | Passed locally |
 | Whitespace check | Passed |
-| GitHub Actions | The preceding authentication PR passed; this PR adds PostgreSQL service tests and awaits its own CI result |
+| GitHub Actions | PR #9 validate check passed, including PostgreSQL service tests |
 | Preview owner access | Authenticated owner dashboard loaded |
 | Preview signed-out API access | HTTP 401 with `Cache-Control: no-store` |
 | Preview viewer approval attempt | HTTP 403: `Role cannot approve or dismiss risks` |
+| Workspace isolation preview | Team B could not see Team A's synthetic finding; approval returned 404 and Team A's status stayed `needs_approval` |
 
 `npm run lint` passes, but the current ESLint configuration does not cover TypeScript files. Changed authentication sources were additionally checked against Next.js lint rules in an isolated validation copy. Expanding the repository's lint configuration remains a follow-up.
 
-The automated authentication tests mock Clerk responses. The preview checks above exercise the deployed Clerk integration; the new repository tests separately verify storage isolation. These checks do not establish production readiness.
+The automated authentication tests mock Clerk responses. Hosted checks exercise Clerk sign-in and cross-workspace denial against a separately migrated Neon preview branch. Both workspace test accounts had the owner role. This verifies the tested read and approval paths; it does not establish production readiness. The production schema cutover remains pending.
+
+### Workspace isolation evidence
+
+- [Automated tests](docs/screenshots/workspace-isolation-tests.png): 132 tests across 19 files.
+- [PostgreSQL integration tests](docs/screenshots/workspace-isolation-postgres.png): 12 tests against a disposable local database.
+- [Team B denied access](docs/screenshots/workspace-isolation-preview-denied.png): Team A's finding was absent from Team B's state, and Team B's approval attempt returned 404.
+- [Team A unchanged](docs/screenshots/workspace-isolation-preview-unchanged.png): the synthetic finding remained `needs_approval` after Team B's attempt.
+
+See the [verification details](docs/workspace-isolation.md#hosted-preview-evidence) for the test setup.
 
 ### Authentication evidence
 
@@ -392,8 +402,8 @@ Documents controlled remediation procedures, safety checks, and rollback plans.
 
 ## Author
 
-Olawale Azeez  
+Olawale Azeez
 AWS Certified Developer Associate
-AWS Certified Solutions Architect -Associate  
-AWS Certified Cloud Practitioner  
+AWS Certified Solutions Architect -Associate
+AWS Certified Cloud Practitioner
 Cloud Engineer | Platform Engineer | DevOps Engineer

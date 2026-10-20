@@ -104,3 +104,30 @@ Save the actual outputs as `docs/screenshots/workspace-isolation-tests.png` and
 separately provisioned preview workspaces and capture a 404 when one tries to
 approve a risk that exists only in the other. Avoid real customer data and never
 show credentials, cookies, or bearer tokens. No placeholder screenshots are added.
+
+
+## Hosted preview evidence
+
+Verified on 20 October 2026 using the `cloudops-workspace-isolation` Vercel
+preview and a separately migrated Neon branch. The production database was not
+migrated for these checks.
+
+Two verified Clerk test accounts were assigned the owner role in separate,
+explicitly provisioned workspaces: `workspace-preview-a` (Preview Team A) and
+`workspace-preview-b` (Preview Team B).
+
+1. Team A imported a synthetic Terraform security-group finding through the
+   application's import API. No Terraform apply or AWS operation ran.
+2. Team B's platform state did not contain that finding. Its attempt to approve
+   the known Team A finding ID returned HTTP 404.
+3. A fresh read in Team A confirmed the finding still had `needs_approval` status.
+
+Both test accounts were owners, so the denied request exercised workspace
+isolation independently of the viewer-role restriction. These checks cover the
+tested read and approval paths; automated tests cover the additional cases above.
+
+![Team B cannot see or approve Team A's finding](screenshots/workspace-isolation-preview-denied.png)
+
+![Team A's finding remains unchanged after the denied request](screenshots/workspace-isolation-preview-unchanged.png)
+
+The coordinated production schema/application cutover is still pending.
