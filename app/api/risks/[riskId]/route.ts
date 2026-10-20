@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentMember } from "@/lib/auth";
+import { getApiMember } from "@/lib/api-auth";
 import {
   canApprove,
   canExecute,
@@ -34,7 +34,9 @@ export async function PATCH(
   context: RouteContext,
 ) {
   const requestId = getRequestId(request);
-  const member = await getCurrentMember();
+  const access = await getApiMember(request);
+  if (access.response) return access.response;
+  const member = access.member;
 
   const body = (await request.json()) as {
     status?: RiskStatus;

@@ -3,6 +3,25 @@ import {
   timingSafeEqual
 } from "node:crypto";
 
+import { isLocalDemoAllowed, isWorkspaceId } from "@/lib/auth-config";
+import { WorkspaceAccessError } from "@/lib/auth-errors";
+import type { WorkspaceMember } from "@/lib/types";
+
+export function getPlatformPilotMember(): WorkspaceMember {
+  const workspaceId = process.env.PLATFORM_PILOT_WORKSPACE_ID ??
+    (isLocalDemoAllowed() ? "workspace-demo" : undefined);
+  if (!isWorkspaceId(workspaceId)) {
+    throw new WorkspaceAccessError(503, "PlatformPilot workspace is not configured.");
+  }
+  return {
+    id: "integration-platform-pilot",
+    workspaceId,
+    email: "platform-pilot@cloudops.example",
+    name: "PlatformPilot integration",
+    role: "viewer",
+  };
+}
+
 export type PlatformPilotAuthenticationResult =
   | {
       authorized: true;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getCurrentMember } from "@/lib/auth";
-import { authenticatePlatformPilotRequest } from "@/lib/platform-pilot-auth";
+import { accessErrorResponse } from "@/lib/api-auth";
+import type { WorkspaceMember } from "@/lib/types";
+import { authenticatePlatformPilotRequest, getPlatformPilotMember } from "@/lib/platform-pilot-auth";
 import {
   mapPlatformPilotFindingToRisk,
   validatePlatformPilotFinding
@@ -46,7 +47,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const member = await getCurrentMember();
+  let member: WorkspaceMember;
+  try {
+    member = getPlatformPilotMember();
+  } catch (error) {
+    return accessErrorResponse(error, request);
+  }
 
   let body: unknown;
 

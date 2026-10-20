@@ -18,3 +18,9 @@ export function canExecute(role: UserRole) {
 export function canManageWorkspace(role: UserRole) {
   return role === "owner";
 }
+
+export function hasMinimumRole(role: UserRole, minimum: UserRole) {
+  return Object.hasOwn(roleRank, role) &&
+    Object.hasOwn(roleRank, minimum) &&
+    roleRank[role] >= roleRank[minimum];
+}

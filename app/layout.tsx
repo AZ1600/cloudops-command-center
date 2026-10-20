@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/app/auth-provider";
+import { isClerkConfigured } from "@/lib/auth-config";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider enabled={isClerkConfigured()}>{children}</AuthProvider>
       </body>
     </html>
   );

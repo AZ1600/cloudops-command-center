@@ -176,7 +176,7 @@ This runtime telemetry complements the persisted audit and execution history rat
 - Vitest
 - GitHub Actions
 - AJV and JSON Schema
-- Optional Clerk authentication
+- Clerk authentication required for production browser access
 - Neon/Postgres-ready persistence
 - Vercel-ready deployment
 
@@ -199,6 +199,21 @@ Latest verification:
 - Production build passed
 - Operational-finding contract validation passed
 - Browser interaction testing completed without console errors
+
+## Authentication boundary
+
+Production browser access requires Clerk, a verified primary email, and explicit
+workspace and role assignments in backend-managed public metadata. Authentication
+failures cannot fall back to a demo owner. Local development retains demo access
+only when neither Clerk key is configured.
+
+PlatformPilot ingestion uses its own token and an explicit target workspace,
+independently from browser sessions.
+
+See [Authentication setup and screenshot evidence](docs/authentication.md) for
+deployment prerequisites, role permissions, verification commands and the
+screenshots to capture. Workspace isolation and persistence hardening remain a
+separate follow-up; this authentication change is not a production certification.
 
 ## Local Development
 
