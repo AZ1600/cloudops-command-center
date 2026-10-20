@@ -1,9 +1,10 @@
+import { withWorkspaceAccessErrors } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import { getApiMember } from "@/lib/api-auth";
 import { importTerraformRisks } from "@/lib/repository";
 import { parseTerraformPlan } from "@/lib/terraform-plan";
 
-export async function POST(request: Request) {
+export const POST = withWorkspaceAccessErrors(async function POST(request: Request) {
   const access = await getApiMember(request, "engineer");
   if (access.response) return access.response;
   const member = access.member;
@@ -21,4 +22,4 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid Terraform plan JSON" }, { status: 400 });
   }
-}
+});

@@ -10,7 +10,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:apply": "node scripts/apply-schema.mjs",
-    "contracts:validate": "node scripts/validate-operational-finding.mjs"
+    "contracts:validate": "node scripts/validate-operational-finding.mjs",
+    "workspace:create": "node scripts/create-workspace.mjs",
+    "test:postgres": "vitest run --config vitest.postgres.config.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.9",

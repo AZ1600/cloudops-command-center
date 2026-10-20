@@ -31,14 +31,23 @@ export function createInitialAuditEvents(riskCount: number): AuditEvent[] {
 }
 
 export function createDemoPlatformState(member: WorkspaceMember = demoMember): PlatformState {
-  const risks = analyzeSignals(mockSignals);
+  const risks = analyzeSignals(structuredClone(mockSignals));
   const executionEvents: ExecutionEvent[] = [];
 
   return {
-    workspace: demoWorkspace,
+    workspace: { ...demoWorkspace },
     currentMember: member,
     risks,
     auditEvents: createInitialAuditEvents(risks.length),
     executionEvents,
+  };
+}
+
+
+// Non-demo assignments start empty; never copy demonstration findings into them.
+export function createEmptyPlatformState(member: WorkspaceMember): PlatformState {
+  return {
+    workspace: { id: member.workspaceId, name: member.workspaceId, plan: "demo" },
+    currentMember: { ...member }, risks: [], auditEvents: [], executionEvents: [],
   };
 }

@@ -36,3 +36,17 @@ export async function getApiMember(
     return { response: accessErrorResponse(error, request) };
   }
 }
+
+
+export function withWorkspaceAccessErrors<T extends unknown[]>(
+  handler: (...args: T) => Promise<NextResponse>,
+): (...args: T) => Promise<NextResponse> {
+  return async (...args: T) => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      if (!(error instanceof WorkspaceAccessError)) throw error;
+      return accessErrorResponse(error, args[0] instanceof Request ? args[0] : undefined);
+    }
+  };
+}

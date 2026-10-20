@@ -15,8 +15,10 @@ const client = new pg.Client({
   ssl: process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: false },
 });
 
-await client.connect();
-await client.query(schema);
-await client.end();
-
-console.log("CloudOps database schema applied.");
+try {
+  await client.connect();
+  await client.query(schema);
+  console.log("CloudOps database schema applied.");
+} finally {
+  await client.end();
+}

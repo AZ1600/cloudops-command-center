@@ -1,3 +1,4 @@
+import { withWorkspaceAccessErrors } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import { accessErrorResponse } from "@/lib/api-auth";
 import type { WorkspaceMember } from "@/lib/types";
@@ -15,7 +16,7 @@ import {
 
 const route = "/api/platform-pilot/findings";
 
-export async function POST(request: Request) {
+export const POST = withWorkspaceAccessErrors(async function POST(request: Request) {
   const requestId = getRequestId(request);
 
   const authentication =
@@ -142,4 +143,4 @@ export async function POST(request: Request) {
     }),
     requestId
   );
-}
+});

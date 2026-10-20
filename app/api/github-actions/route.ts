@@ -1,9 +1,10 @@
+import { withWorkspaceAccessErrors } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import { getApiMember } from "@/lib/api-auth";
 import { fetchGitHubActionsRisks } from "@/lib/github-actions";
 import { importGitHubActionsRisks } from "@/lib/repository";
 
-export async function POST(request: Request) {
+export const POST = withWorkspaceAccessErrors(async function POST(request: Request) {
   const access = await getApiMember(request, "engineer");
   if (access.response) return access.response;
   const member = access.member;
@@ -21,4 +22,4 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Unable to fetch GitHub Actions runs. Use owner/repo format and check repository access." }, { status: 400 });
   }
-}
+});

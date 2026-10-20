@@ -12,7 +12,7 @@ It brings risk detection, raw evidence, service ownership, deterministic Decisio
 
 This is a deployed portfolio application with authenticated workspace access, evidence-based investigation, and simulated remediation. The hosted deployment currently uses a Clerk development instance. Signing up alone does not grant access: a trusted administrator must assign a workspace and role, and the user's primary email must be verified.
 
-The authentication update was verified on a Vercel preview with an owner account, a signed-out API request, and a viewer approval rejection. Workspace isolation and persistence hardening remain follow-up work before supporting separate customer workspaces.
+The authentication update was verified on a Vercel preview with an owner account, a signed-out API request, and a viewer approval rejection. Workspace storage now uses separate in-memory states and composite Postgres record keys. The database schema must be upgraded in coordination with deployment; persistence configuration and operational hardening remain follow-up work.
 
 ![Authenticated owner dashboard with the demo risk inbox and approval controls](docs/screenshots/authenticated-owner-dashboard.png)
 
@@ -150,7 +150,7 @@ flowchart TB
 | Validation and authentication | Rejects malformed or unauthorized PlatformPilot findings before storage, using a separate integration token and workspace assignment. |
 | Risk engine | Normalizes signals into categorized, owner-routed infrastructure risks. |
 | Decision Trace engine | Produces deterministic, evidence-backed steps with bounded confidence and dependencies. |
-| Repository | Uses Postgres when `DATABASE_URL` is set, otherwise a process-local in-memory demo store; workspace isolation needs further hardening. |
+| Repository | Uses Postgres when `DATABASE_URL` is set, otherwise an in-memory store keyed by workspace; reads return snapshots and database operations use workspace-scoped transactions. |
 | Investigation workspace | Presents the queue, raw evidence, trace, recommendation, and approval boundary. |
 | Human-controlled operations | Requires approval before recording simulated remediation; runbooks describe verification and rollback steps for human review. |
 | Audit history | Records scans, approvals, dismissals, and simulated execution events. |
@@ -211,23 +211,34 @@ npm run contracts:validate
 git diff --check
 ```
 
-Verified on the authentication branch on 20 October 2026:
+Verified on the workspace-isolation changes on 20 October 2026. Authentication screenshots were captured for the preceding authentication PR; workspace-isolation screenshots below show the new preview using a separate Neon database branch.
 
 | Check | Result |
 | --- | --- |
-| Automated suite | 120 tests passed across 17 files |
-| Authentication regression subset | 77 tests passed across 3 files, included in the 120 total |
-| TypeScript and production build | Passed |
+| Automated suite | 132 tests passed across 19 files |
+| Authentication regression subset | 77 tests passed across 3 files, included in the 132 total |
+| PostgreSQL isolation and migration suite | 12 tests passed against a disposable PostgreSQL 17 database |
+| TypeScript and production build | Passed; webpack in an isolated source copy and the standard build in the working checkout |
 | Operational-finding contract validation | Passed locally |
 | Whitespace check | Passed |
-| GitHub Actions `validate` job | Passed |
+| GitHub Actions | PR #9 validate check passed, including PostgreSQL service tests |
 | Preview owner access | Authenticated owner dashboard loaded |
 | Preview signed-out API access | HTTP 401 with `Cache-Control: no-store` |
 | Preview viewer approval attempt | HTTP 403: `Role cannot approve or dismiss risks` |
+| Workspace isolation preview | Team B could not see Team A's synthetic finding; approval returned 404 and Team A's status stayed `needs_approval` |
 
 `npm run lint` passes, but the current ESLint configuration does not cover TypeScript files. Changed authentication sources were additionally checked against Next.js lint rules in an isolated validation copy. Expanding the repository's lint configuration remains a follow-up.
 
-The automated authentication tests mock Clerk responses. The preview checks above exercise the deployed Clerk integration; they do not establish complete workspace isolation or production readiness.
+The automated authentication tests mock Clerk responses. Hosted checks exercise Clerk sign-in and cross-workspace denial against a separately migrated Neon preview branch. Both workspace test accounts had the owner role. This verifies the tested read and approval paths; it does not establish production readiness. The production schema cutover remains pending.
+
+### Workspace isolation evidence
+
+- [Automated tests](docs/screenshots/workspace-isolation-tests.png): 132 tests across 19 files.
+- [PostgreSQL integration tests](docs/screenshots/workspace-isolation-postgres.png): 12 tests against a disposable local database.
+- [Team B denied access](docs/screenshots/workspace-isolation-preview-denied.png): Team A's finding was absent from Team B's state, and Team B's approval attempt returned 404.
+- [Team A unchanged](docs/screenshots/workspace-isolation-preview-unchanged.png): the synthetic finding remained `needs_approval` after Team B's attempt.
+
+See the [verification details](docs/workspace-isolation.md#hosted-preview-evidence) for the test setup.
 
 ### Authentication evidence
 
@@ -275,8 +286,7 @@ independently from browser sessions.
 
 See [Authentication setup and screenshot evidence](docs/authentication.md) for
 deployment prerequisites, role permissions, verification commands and the
-screenshots to capture. Workspace isolation and persistence hardening remain a
-separate follow-up; this authentication change is not a production certification.
+screenshots to capture. See [Workspace isolation and schema cutover](docs/workspace-isolation.md) for storage behavior, provisioning, migration order and PostgreSQL regression tests. This remains a portfolio application rather than a production certification.
 
 ## Local Development
 
@@ -307,10 +317,25 @@ Configure values through your deployment provider or an ignored local environmen
 
 The embedded sign-in route is `/login`, with catch-all handling for verification and callback steps. Use the same Clerk instance for both keys. Configure authorized users through backend-managed public metadata, for example `workspaceId: "workspace-demo"` and `role: "owner"` for the demo workspace's owner. New workspaces are not provisioned automatically.
 
-Apply the database schema after configuring `DATABASE_URL`:
+Before using this version with Postgres, follow the [schema cutover instructions](docs/workspace-isolation.md#schema-upgrade-and-deployment-order). The old application cannot write against the new primary keys. Test with a separate preview database first. Apply the schema during the coordinated cutover, after configuring `DATABASE_URL`:
 
 ```bash
 npm run db:apply
+```
+
+Provision additional Postgres workspaces through the operator command before assigning users to them:
+
+```bash
+npm run workspace:create -- workspace-team-a 'Team A' team
+```
+
+Only `workspace-demo` is seeded with demonstration findings and can be reset by its owner. Other Postgres workspaces start empty; unknown workspace IDs return 403. In-memory non-demo assignments use separate empty, ephemeral states.
+
+For local PostgreSQL isolation tests:
+
+```bash
+docker compose -f compose.test.yml up -d --wait
+CLOUDOPS_TEST_DATABASE_URL='postgresql://cloudops_test:cloudops_local_test@127.0.0.1:55433/cloudops_test' npm run test:postgres
 ```
 
 Vercel environment changes apply to new deployments. Redeploy the intended Preview or Production environment after changing keys. Protected preview links may additionally require Vercel access or a generated shareable link; this is separate from Clerk authentication inside CloudOps.
@@ -327,11 +352,10 @@ See [.env.example](.env.example) and [the authentication guide](docs/authenticat
 | AWS, Kubernetes, and monitoring examples | Seeded demonstration signals; connector labels do not establish live collection. |
 | Decision Traces | Deterministic evidence-based templates, without an LLM dependency. |
 | Execution | Records simulated remediation and evidence; does not apply cloud changes, dispatch workflows, or open remediation PRs. |
-| Workspace access | Explicit authenticated workspace assignments and roles; full storage isolation is not yet established. |
+| Workspace access | Explicit authenticated workspace assignments and roles, per-workspace memory stores, and composite Postgres record keys. Database operations lock the workspace row and commit status/evidence changes together. |
 
 ## Next Improvements
 
-- Isolate in-memory and Postgres storage consistently between workspaces, including identifiers and workspace provisioning.
 - Require persistent storage for deployed environments and strengthen database transport configuration.
 - Expand ESLint coverage to TypeScript and TSX sources.
 - Move the hosted demo from Clerk development keys to a configured production instance for a production launch.
@@ -378,8 +402,8 @@ Documents controlled remediation procedures, safety checks, and rollback plans.
 
 ## Author
 
-Olawale Azeez  
+Olawale Azeez
 AWS Certified Developer Associate
-AWS Certified Solutions Architect -Associate  
-AWS Certified Cloud Practitioner  
+AWS Certified Solutions Architect -Associate
+AWS Certified Cloud Practitioner
 Cloud Engineer | Platform Engineer | DevOps Engineer
