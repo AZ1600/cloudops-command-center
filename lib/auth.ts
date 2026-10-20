@@ -1,47 +1,54 @@
+import { isClerkConfigured, isLocalDemoAllowed, isWorkspaceId } from "@/lib/auth-config";
+import { WorkspaceAccessError } from "@/lib/auth-errors";
+import { demoMember } from "@/lib/platform-state";
 import type { UserRole, WorkspaceMember } from "@/lib/types";
-
-const clerkEnabled = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
-
-const demoMember: WorkspaceMember = {
-  id: "member-demo-owner",
-  workspaceId: "workspace-demo",
-  email: "owner@cloudops.example",
-  name: "Demo Platform Owner",
-  role: "owner",
-};
-
-export async function getCurrentMember(): Promise<WorkspaceMember> {
-  if (!clerkEnabled) {
-    return demoMember;
-  }
-
-  try {
-    const { auth, currentUser } = await import("@clerk/nextjs/server");
-    const session = await auth();
-    const user = await currentUser();
-
-    if (!session.userId || !user) {
-      return demoMember;
-    }
-
-    const email = user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)?.emailAddress ?? user.emailAddresses[0]?.emailAddress;
-
-    return {
-      id: session.userId,
-      workspaceId: user.publicMetadata.workspaceId?.toString() ?? "workspace-demo",
-      email: email ?? "unknown@cloudops.local",
-      name: user.fullName ?? user.firstName ?? "CloudOps User",
-      role: parseRole(user.publicMetadata.role),
-    };
-  } catch {
-    return demoMember;
-  }
-}
 
 function parseRole(value: unknown): UserRole {
   if (value === "owner" || value === "admin" || value === "engineer" || value === "viewer") {
     return value;
   }
+  throw new WorkspaceAccessError(403, "Workspace access needs review.");
+}
 
-  return "owner";
+export async function getCurrentMember(): Promise<WorkspaceMember> {
+  if (isLocalDemoAllowed()) return { ...demoMember };
+  if (!isClerkConfigured()) {
+    throw new WorkspaceAccessError(503, "Authentication is temporarily unavailable.");
+  }
+
+  try {
+    const { auth, currentUser } = await import("@clerk/nextjs/server");
+    const session = await auth();
+    if (!session.userId) {
+      throw new WorkspaceAccessError(401, "Sign in to access your workspace.");
+    }
+
+    const user = await currentUser();
+    if (!user || user.id !== session.userId) {
+      throw new WorkspaceAccessError(401, "Sign in to access your workspace.");
+    }
+
+    const workspaceId = user.publicMetadata.workspaceId;
+    if (!isWorkspaceId(workspaceId)) {
+      throw new WorkspaceAccessError(403, "Workspace access needs review.");
+    }
+    const role = parseRole(user.publicMetadata.role);
+    const email = user.emailAddresses.find(
+      (address) => address.id === user.primaryEmailAddressId,
+    );
+    if (!email?.emailAddress || email.verification?.status !== "verified") {
+      throw new WorkspaceAccessError(403, "Verify your primary email before continuing.");
+    }
+
+    return {
+      id: session.userId,
+      workspaceId,
+      email: email.emailAddress,
+      name: user.fullName?.trim() || user.firstName?.trim() || email.emailAddress,
+      role,
+    };
+  } catch (error) {
+    if (error instanceof WorkspaceAccessError) throw error;
+    throw new WorkspaceAccessError(503, "Authentication is temporarily unavailable.");
+  }
 }

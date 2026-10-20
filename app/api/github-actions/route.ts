@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { getCurrentMember } from "@/lib/auth";
+import { getApiMember } from "@/lib/api-auth";
 import { fetchGitHubActionsRisks } from "@/lib/github-actions";
 import { importGitHubActionsRisks } from "@/lib/repository";
 
 export async function POST(request: Request) {
-  const member = await getCurrentMember();
+  const access = await getApiMember(request, "engineer");
+  if (access.response) return access.response;
+  const member = access.member;
   const body = (await request.json()) as { repository?: string };
 
   if (!body.repository) {

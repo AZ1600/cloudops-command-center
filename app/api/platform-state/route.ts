@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { getCurrentMember } from "@/lib/auth";
+import { getApiMember } from "@/lib/api-auth";
 import { getPlatformState } from "@/lib/repository";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  const member = await getCurrentMember();
+  const access = await getApiMember(undefined);
+  if (access.response) return access.response;
+  const member = access.member;
   const state = await getPlatformState(member);
 
   return NextResponse.json(state);
