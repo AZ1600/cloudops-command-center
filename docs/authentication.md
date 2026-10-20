@@ -29,9 +29,7 @@ and 503 for missing/broken authentication configuration. SDK exception details a
 not returned. Pages show an access panel before reading workspace data.
 
 The existing application remains a portfolio workflow with simulated execution.
-This change does not certify production readiness or repair the repository's
-remaining workspace-isolation and persistence issues. Those need a separate PR
-before supporting multiple customer workspaces.
+This does not certify production readiness. See [Workspace storage isolation](workspace-isolation.md) for per-workspace storage, provisioning, migration requirements and the remaining operational limits.
 
 ## Configure Clerk before deploying this change
 
@@ -47,7 +45,7 @@ before supporting multiple customer workspaces.
    { "workspaceId": "workspace-your-team", "role": "viewer" }
    ```
 4. Use a workspace that already exists in PostgreSQL when PostgreSQL is enabled.
-   This PR does not create or migrate workspaces. Use an isolated preview/test
+   Additional workspaces are created through the operator-controlled `npm run workspace:create` command after applying the schema; sign-up does not provision them. Use an isolated preview/test
    workspace for role checks; do not assign access to somebody else's workspace.
 5. Verify the primary email using Clerk. An otherwise valid account with no
    assignment sees the access-review page instead of entering the demo workspace.

@@ -1,0 +1,17 @@
+name: cloudops-isolation-test
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: cloudops_test
+      POSTGRES_PASSWORD: cloudops_local_test
+      POSTGRES_DB: cloudops_test
+    ports:
+      - "127.0.0.1:55433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudops_test -d cloudops_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

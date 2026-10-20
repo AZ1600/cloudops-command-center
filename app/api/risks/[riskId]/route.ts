@@ -1,3 +1,4 @@
+import { withWorkspaceAccessErrors } from "@/lib/api-auth";
 import { NextResponse } from "next/server";
 import { getApiMember } from "@/lib/api-auth";
 import {
@@ -29,7 +30,7 @@ const allowedStatuses: RiskStatus[] = [
   "executed",
 ];
 
-export async function PATCH(
+export const PATCH = withWorkspaceAccessErrors(async function PATCH(
   request: Request,
   context: RouteContext,
 ) {
@@ -220,4 +221,4 @@ export async function PATCH(
     NextResponse.json(state),
     requestId,
   );
-}
+});
