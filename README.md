@@ -1,76 +1,313 @@
+
 # CloudOps Command Center
 
 [![CI](https://github.com/AZ1600/cloudops-command-center/actions/workflows/ci.yml/badge.svg)](https://github.com/AZ1600/cloudops-command-center/actions/workflows/ci.yml)
 
-CloudOps Command Center is a platform engineering assistant that turns infrastructure signals into explainable, owner-routed, approval-gated remediation workflows.
+**An evidence-driven cloud operations workspace for investigating infrastructure risks, routing decisions to service owners, and managing approval-gated remediation workflows.**
 
-It brings risk detection, raw evidence, service ownership, deterministic Decision Traces, runbooks, human approvals, controlled execution, and audit history into one operational workspace.
+CloudOps Command Center brings together infrastructure signals, structured evidence, deterministic Decision Traces, ownership, runbooks, human approvals and auditable simulated execution.
 
-[Hosted demo](https://cloudops-command-center.vercel.app/) · [Authentication and access setup](docs/authentication.md) · [Finding contract](contracts/operational-finding.schema.json)
+Built using **Next.js, TypeScript, React, PostgreSQL, Clerk authentication and GitHub Actions**, the project demonstrates practical platform engineering, operational safety, workspace isolation and full-stack application development.
 
-## Current Status
+**Explore:** [Technical Review](#technical-review--start-here) · [Architecture](#architecture) · [Security](#authentication-and-authorization) · [Validation](#testing-and-validation) · [Screenshots](#project-screenshots) · [Limitations](#scope-and-limitations)
 
-This is a deployed portfolio application with authenticated workspace access, evidence-based investigation, and simulated remediation. The hosted deployment currently uses a Clerk development instance. Signing up alone does not grant access: a trusted administrator must assign a workspace and role, and the user's primary email must be verified.
+[Hosted Application](https://cloudops-command-center.vercel.app/) · [Authentication Guide](docs/authentication.md) · [Workspace Isolation](docs/workspace-isolation.md)
 
-The authentication update was verified on a Vercel preview with an owner account, a signed-out API request, and a viewer approval rejection. Workspace storage now uses separate in-memory states and composite Postgres record keys. The database schema must be upgraded in coordination with deployment; persistence configuration and operational hardening remain follow-up work.
+> [!IMPORTANT]
+> This is a deployed portfolio application, not a production-certified remediation platform. The hosted workspace requires authenticated, explicitly assigned access. Infrastructure remediation is simulated. The current hosted authentication setup uses a Clerk development instance, and coordinated production database migration and operational hardening remain future work.
 
-![Authenticated owner dashboard with the demo risk inbox and approval controls](docs/screenshots/authenticated-owner-dashboard.png)
+---
 
-The owner dashboard shows seeded demonstration risks, service ownership, raw evidence, and the human approval boundary. Displayed savings and confidence values are demonstration estimates, not measured customer outcomes.
+## Technical Review — Start Here
 
-## Project Overview
+A quick guide for engineers and reviewers who want to examine the implementation rather than only the interface.
 
-The overview below summarizes the investigation experience, system architecture, five-step Decision Trace, safety boundary, and core technology stack.
+| Engineering Area | What to Review | Evidence |
+| --- | --- | --- |
+| System architecture | Signal ingestion, risk processing and operational decisions | [Architecture](#architecture) |
+| Authentication | Verified identity and role-based API protection | [Authentication implementation](lib/auth.ts) |
+| API authorization | Permission enforcement and protected endpoints | [API access controls](lib/api-auth.ts) |
+| Workspace isolation | Tenant-scoped reads, writes and database transactions | [Workspace isolation tests](tests/integration/workspace-isolation.postgres.ts) |
+| Approval safety | Preventing execution before authorization | [Approval-gate tests](tests/approval-gate.test.ts) |
+| Decision Traces | Deterministic evidence-based operational reasoning | [Decision Trace implementation](lib/decision-trace.ts) |
+| PlatformPilot integration | Validated findings with independent authentication | [Finding contract](contracts/operational-finding.schema.json) |
+| Operational telemetry | Request IDs and structured event reporting | [Telemetry implementation](lib/telemetry.ts) |
+| CI/CD | Automated tests, lint, typecheck, build and database verification | [GitHub Actions workflow](.github/workflows/ci.yml) |
 
-![CloudOps Command Center project overview](docs/Project-overview.png)
+### Validation at a Glance
 
-## Problem It Solves
+| Check | Evidence |
+| --- | --- |
+| Automated application tests | **132 passing tests across 19 files**, reproduced locally on 30 October 2026 |
+| Authentication regression tests | 77 passing tests across 3 files, included in the 132-test suite |
+| PostgreSQL integration tests | 12 passing tests in the recorded 20 October validation |
+| Next.js production build | Passed locally on 30 October 2026 |
+| TypeScript validation | Passed locally on 30 October 2026 |
+| ESLint command | Passed locally; TypeScript source coverage remains a documented gap |
+| Operational-finding contract | Dedicated schema validation and automated tests |
+| Workspace isolation | Recorded local PostgreSQL and hosted preview verification |
 
-Cloud and platform teams receive signals from GitHub Actions, AWS, Kubernetes, Terraform, and monitoring systems. Seeing an alert is only the beginning. Engineers still need to determine:
+These results reflect the tests and environments described. They do not establish independent production certification.
 
-- What is risky and why does it matter?
-- Which service and environment are affected?
-- What evidence supports the recommendation?
-- Who owns the service?
-- What must be verified before remediation?
-- Is human approval required?
-- Can the decision and resulting action be audited later?
+---
 
-CloudOps Command Center connects those questions into one controlled workflow.
+## The Engineering Problem
 
-## Core Workflow
+Cloud and platform teams receive infrastructure signals from multiple systems:
+
+- GitHub Actions workflows
+- Kubernetes workloads
+- Terraform plans
+- Cloud infrastructure
+- Monitoring and observability services
+- Other internal engineering platforms
+
+Detecting an issue is only the beginning.
+
+Engineers must establish:
+
+1. What happened and what evidence supports the finding?
+2. Which service and environment are affected?
+3. Who owns the affected service?
+4. What risk does the issue present?
+5. What verification should happen before remediation?
+6. Who is authorized to approve an action?
+7. How should the resulting decision be recorded?
+
+CloudOps Command Center brings these concerns together in a structured investigation workflow.
+
+## Core Operational Workflow
 
 ```text
-Infrastructure signal
-        ↓
-Validation and risk mapping
-        ↓
-Raw evidence + service ownership
-        ↓
+Infrastructure Signal
+         |
+         v
+Input Validation
+         |
+         v
+Risk Detection and Classification
+         |
+         v
+Raw Evidence and Service Ownership
+         |
+         v
 Deterministic Decision Trace
-        ↓
-Engineer verification
-        ↓
-Human approval boundary
-        ↓
-Simulated remediation
-        ↓
-Audit and execution history
+         |
+         v
+Engineer Verification
+         |
+         v
+Human Approval
+         |
+         v
+Simulated Remediation
+         |
+         v
+Audit and Execution History
 ```
 
-## Decision Trace
+The central principle is that **an infrastructure finding should not automatically become an infrastructure change**.
 
-Each supported risk can include an auditable Decision Trace with five typed steps:
+Recommendations and evidence are separated from authorization and execution.
+
+---
+
+## Architecture
+
+CloudOps Command Center uses a Next.js and TypeScript application with server-side authorization, structured risk processing, workspace-scoped persistence and an interactive investigation dashboard.
+
+```mermaid
+flowchart TD
+    GH[GitHub Actions]
+    TF[Terraform Plans]
+    PP[PlatformPilot]
+    DEMO[Demonstration Signals]
+
+    API[Ingestion APIs]
+    VALIDATE[Authentication and Validation]
+    RISK[Risk Classification]
+    TRACE[Deterministic Decision Trace]
+    DB[(Workspace State / PostgreSQL)]
+    UI[Investigation Workspace]
+    APPROVE{Human Approval?}
+    EXEC[Simulated Execution]
+    AUDIT[Audit History]
+
+    GH --> API
+    TF --> API
+    PP --> API
+    DEMO --> API
+
+    API --> VALIDATE
+    VALIDATE --> RISK
+    RISK --> TRACE
+    RISK --> DB
+    TRACE --> DB
+    DB --> UI
+
+    UI --> APPROVE
+    APPROVE -->|Rejected| DB
+    APPROVE -->|Approved| EXEC
+    EXEC --> AUDIT
+    AUDIT --> DB
+```
+
+### Architectural Responsibilities
+
+| Layer | Responsibility |
+| --- | --- |
+| Ingestion | Accept supported infrastructure signals and structured findings |
+| Validation | Check request contracts, identity and integration credentials |
+| Risk engine | Convert supported signals into classified operational risks |
+| Decision Trace | Generate deterministic evidence-based reasoning steps |
+| Service catalog | Associate risks with services and responsible owners |
+| Authentication | Verify browser sessions, workspace assignments and roles |
+| Repository | Manage isolated workspace state using memory or PostgreSQL |
+| Investigation UI | Present findings, evidence, decisions and workflow status |
+| Approval boundary | Prevent unauthorized changes to remediation status |
+| Audit history | Record operational actions, approvals and simulated execution |
+
+### Technology Stack
+
+| Category | Technology |
+| --- | --- |
+| Frontend | Next.js, React, TypeScript |
+| Backend | Next.js API routes |
+| Authentication | Clerk |
+| Database | PostgreSQL, with in-memory development storage |
+| Validation | AJV and JSON Schema |
+| Testing | Vitest |
+| CI/CD | GitHub Actions |
+| Hosting | Vercel |
+| External integration | GitHub Actions API, Terraform plan JSON and PlatformPilot findings |
+
+---
+
+## Key Engineering Capabilities
+
+### 1. Infrastructure Risk Detection
+
+The platform converts supported infrastructure inputs into structured risks.
+
+Each risk can include:
+
+- Risk identifier
+- Severity and status
+- Source and environment
+- Service ownership
+- Evidence and contextual information
+- Operational recommendations
+- Approval requirements
+- Audit and execution records
+
+The dashboard supports filtering and investigation of operational findings.
+
+### 2. Deterministic Decision Traces
+
+A central feature is the five-step Decision Trace:
 
 ```text
-Premise → Reasoning → Hypothesis → Verification → Conclusion
+Premise
+   |
+   v
+Reasoning
+   |
+   v
+Hypothesis
+   |
+   v
+Verification
+   |
+   v
+Conclusion
 ```
 
-Every step has a stable ID, explicit dependencies, and a confidence value bounded between `0` and `1`. The premise cites supplied evidence, the hypothesis remains conditional, the verification step names what an engineer must check, and the conclusion preserves the approval boundary.
+Decision Traces are structured application artifacts generated from supplied evidence and predefined logic.
 
-The trace is a deterministic application artifact built from structured evidence and fixed templates. It does not require MCP or an LLM and cannot authorize or execute infrastructure changes.
+Each step can contain:
 
-PlatformPilot risks continue to enforce:
+- A stable identifier
+- Explicit dependencies
+- A bounded confidence value
+- Evidence references
+- Reasoning or verification context
+
+The system separates observed evidence from proposed explanations.
+
+**Decision Traces do not use an LLM or authorize infrastructure changes.**
+
+[View implementation](lib/decision-trace.ts) · [View automated tests](tests/decision-trace.test.ts)
+
+### 3. Human Approval and Simulated Execution
+
+Infrastructure findings may require review before their execution status changes.
+
+The workflow models:
+
+```text
+Risk Detected
+      |
+      v
+Needs Approval
+      |
+      v
+Authorized Review
+      |
+      +---- Rejected / Dismissed
+      |
+      v
+Approved
+      |
+      v
+Simulated Execution
+      |
+      v
+Audit Record
+```
+
+Important controls include:
+
+- Permission checks before protected operations
+- An approval requirement before simulated execution
+- Server-side enforcement
+- Execution evidence and audit history
+- Explicit separation between recommendations and actions
+
+The system does not run Terraform apply, modify AWS resources or execute Kubernetes remediation commands.
+
+[Approval-gate tests](tests/approval-gate.test.ts) · [Execution evidence tests](tests/execution-evidence.test.ts)
+
+### 4. Service Ownership and Runbooks
+
+Infrastructure risks are associated with service ownership information.
+
+This helps engineers identify:
+
+- The affected service
+- Responsible owners
+- Current operational state
+- Outstanding risks
+- Required verification
+- Relevant remediation instructions
+
+Runbooks document safety checks, operational procedures and rollback considerations.
+
+[Service catalog tests](tests/service-catalog.test.ts) · [Runbook tests](tests/runbooks.test.ts)
+
+### 5. PlatformPilot Integration
+
+CloudOps Command Center can receive structured findings from PlatformPilot through a separately authenticated ingestion endpoint.
+
+The integration uses:
+
+- A documented JSON Schema contract
+- Independent bearer-token authentication
+- An explicitly configured target workspace
+- Input validation before persistence
+- Finding identification and deduplication
+- A mandatory human approval boundary
+
+PlatformPilot findings retain operational controls such as:
 
 ```text
 approvalRequired: true
@@ -78,132 +315,142 @@ status: needs_approval
 executionMode: manual
 ```
 
-## Investigation Workspace
+PlatformPilot's integration credential does not authorize browser-based risk approvals or execution.
 
-![Decision Trace investigation workspace](docs/dashboard-risk-inbox.png)
+[Operational-finding contract](contracts/operational-finding.schema.json) · [Contract tests](tests/operational-finding-contract.test.ts)
 
-The investigation workspace separates overview work from detailed analysis:
+---
 
-- The left-hand queue supports search plus severity and source filters.
-- Selecting a risk opens its service, owner, source, confidence, and execution metadata.
-- Raw evidence is preserved separately from interpretation.
-- The trace shows how each reviewable step depends on earlier evidence.
-- Approval controls remain outside the trace itself.
+## Authentication and Authorization
 
-### Complete Decision Trace
+CloudOps Command Center uses Clerk for browser authentication when configured.
 
-![Complete Decision Trace and approval boundary](docs/decision-trace-investigation.png)
+Production browser access requires:
 
-This view shows the complete five-step trace. Confidence decreases as the trace moves from source observations toward a hypothesis and conclusion, reflecting increasing uncertainty. The final panel makes the operational boundary explicit: no infrastructure change runs from the trace, and a human must review the evidence before remediation.
+1. A valid authenticated session.
+2. A verified primary email address.
+3. An explicit trusted workspace assignment.
+4. A recognized application role.
+5. Server-side permission checks.
 
-## Architecture
+Creating an account does not automatically grant access to a workspace.
 
-```mermaid
-flowchart TB
-    subgraph Sources["Infrastructure signal sources"]
-        GH["GitHub Actions"]
-        AWS["AWS"]
-        K8S["Kubernetes"]
-        TF["Terraform"]
-        MON["Monitoring"]
-        PP["PlatformPilot"]
-    end
+### Role-Based Access Control
 
-    subgraph App["CloudOps Command Center — Next.js + TypeScript"]
-        API["Ingestion API routes"]
-        AUTH["Clerk session and explicit workspace role"]
-        VALIDATE["Scoped ingestion authentication and contract validation"]
-        MAP["Signal mapping and risk engine"]
-        TRACE["Deterministic Decision Trace engine"]
-        STATE["Workspace risk state and repository"]
-        UI["Investigation workspace"]
-    end
-
-    subgraph Control["Human-controlled operations"]
-        VERIFY["Engineer verification"]
-        APPROVE{"Approval granted?"}
-        RUNBOOK["Runbook-based remediation"]
-        EXEC["Simulated execution record"]
-        AUDIT["Audit and execution history"]
-    end
-
-    GH & AWS & K8S & TF & MON & PP --> API
-    API --> VALIDATE --> MAP
-    MAP --> TRACE
-    MAP --> STATE
-    TRACE --> STATE
-    STATE --> UI
-    AUTH --> UI
-    UI --> VERIFY --> APPROVE
-    APPROVE -- "No" --> STATE
-    APPROVE -- "Yes" --> RUNBOOK --> EXEC --> AUDIT
-    AUDIT --> STATE
-```
-
-### Architectural responsibilities
-
-| Layer | Responsibility |
+| Role | Authorized capabilities |
 | --- | --- |
-| Signal sources | Supply workflow, cloud, cluster, plan, and monitoring observations. |
-| Ingestion APIs | Accept supported inputs without granting execution authority. |
-| Browser authentication | Requires a Clerk session, verified primary email, and explicit workspace/role assignment before data access. |
-| Validation and authentication | Rejects malformed or unauthorized PlatformPilot findings before storage, using a separate integration token and workspace assignment. |
-| Risk engine | Normalizes signals into categorized, owner-routed infrastructure risks. |
-| Decision Trace engine | Produces deterministic, evidence-backed steps with bounded confidence and dependencies. |
-| Repository | Uses Postgres when `DATABASE_URL` is set, otherwise an in-memory store keyed by workspace; reads return snapshots and database operations use workspace-scoped transactions. |
-| Investigation workspace | Presents the queue, raw evidence, trace, recommendation, and approval boundary. |
-| Human-controlled operations | Requires approval before recording simulated remediation; runbooks describe verification and rollback steps for human review. |
-| Audit history | Records scans, approvals, dismissals, and simulated execution events. |
+| Viewer | Read assigned workspace information |
+| Engineer | Read information and import supported engineering signals |
+| Admin | Approve, dismiss and record simulated execution |
+| Owner | Administrative operations and permitted demo reset |
 
-## Features
+These permissions are enforced on the server rather than relying solely on hidden interface controls.
 
-- Searchable risk inbox with severity, source, status, service, owner, and confidence context
-- Deterministic Decision Traces over PlatformPilot findings and demo risks
-- Raw evidence preserved separately from hypotheses and conclusions
-- Owner routing and service catalog
-- Approval queue and permission-aware controls
-- Clerk sign-in with explicit workspace roles and verified primary email checks
-- API authentication and permission checks before repository access
-- Runbooks with safety checks and rollback plans
-- GitHub Actions workflow-failure import
-- Terraform plan JSON risk detection
-- PlatformPilot contract validation and authenticated ingestion
-- Structured JSON operational telemetry with request correlation IDs
-- Simulated execution evidence and audit history
-- Responsive investigation workspace
+### Authentication Failure Behaviour
 
-## Operational Telemetry
+| Condition | Expected response |
+| --- | --- |
+| Missing authenticated session | HTTP 401 |
+| Invalid assignment or insufficient permission | HTTP 403 |
+| Missing or unavailable authentication configuration | HTTP 503 |
 
-API operations emit structured JSON events for key ingestion and remediation decisions.
+Authentication error responses use `Cache-Control: no-store`.
 
-Each event includes:
+Browser sessions and PlatformPilot ingestion tokens belong to separate trust boundaries.
 
-- a request correlation ID
-- route and event name
-- outcome and HTTP status
-- risk or finding context when available
-- requested and current status where relevant
-- actor role and rejection or blocking reason
+[Authentication guide](docs/authentication.md) · [Authorization tests](tests/auth-route-boundaries.test.ts)
 
-Supported upstream `x-request-id` values are preserved and returned in API responses. When one is not supplied, CloudOps Command Center generates a request ID for correlation.
+---
 
-This runtime telemetry complements the persisted audit and execution history rather than replacing it.
+## Workspace Isolation and PostgreSQL
 
-## Technology Stack
+CloudOps Command Center supports isolated operational workspaces.
 
-- Next.js and React
-- TypeScript
-- Vitest
-- GitHub Actions
-- AJV and JSON Schema
-- Clerk authentication required for production browser access
-- Neon/Postgres-ready persistence
-- Vercel-ready deployment
+### In-Memory Mode
 
-## Validation
+Development storage maintains separate workspace states.
+
+- Workspace data is isolated by workspace ID.
+- Reads return copies of state.
+- Non-demo workspaces begin empty.
+- Data is ephemeral and may be lost when the application restarts.
+
+### PostgreSQL Mode
+
+The PostgreSQL implementation provides:
+
+- Workspace-scoped reads and writes
+- Composite `(workspace_id, id)` record keys
+- Independent service and finding records
+- Transactional state changes
+- Workspace-level locking
+- Audit and execution record persistence
+- Rollback of related changes when a transaction fails
+
+Isolation is implemented by the application and database queries, **not PostgreSQL row-level security**.
+
+### Cross-Workspace Validation
+
+Recorded tests verify that workspaces cannot retrieve or modify each other's operational records through the tested application paths.
+
+The hosted preview validation used two separately assigned test workspaces.
+
+A finding created in Team A was not visible in Team B. Team B's approval attempt returned HTTP 404, and Team A's finding remained unchanged.
+
+The production schema migration must be coordinated with application deployment; it is not automatically performed by the application.
+
+[Workspace isolation documentation](docs/workspace-isolation.md) · [PostgreSQL integration tests](tests/integration/workspace-isolation.postgres.ts)
+
+---
+
+## Operational Telemetry and Auditability
+
+CloudOps emits structured JSON telemetry for supported operational events.
+
+Records include relevant fields such as:
+
+- Timestamp
+- Event name
+- API route
+- Request correlation ID
+- Outcome and status code
+- Actor role
+- Risk or finding identifier
+- Requested and current status
+- Rejection or blocking reason
+
+Supported incoming `x-request-id` values are preserved. Otherwise, the application generates an identifier.
+
+Telemetry supports investigation and request correlation. Persistent audit events track business workflow decisions separately.
+
+[Telemetry implementation](lib/telemetry.ts) · [Telemetry tests](tests/telemetry.test.ts)
+
+---
+
+## Testing and Validation
+
+The project uses automated tests to verify application behaviour, security boundaries and integration contracts.
+
+### Application Tests
+
+Run:
 
 ```bash
 npm run test
+```
+
+**Baseline verified locally on 30 October 2026:**
+
+```text
+Test Files  19 passed (19)
+Tests       132 passed (132)
+```
+
+The suite covers areas including authentication, workspace access, approval gates, risk processing, telemetry, integration contracts and decision traces.
+
+### Static and Build Validation
+
+```bash
 npm run lint
 npm run typecheck
 npm run build
@@ -211,199 +458,290 @@ npm run contracts:validate
 git diff --check
 ```
 
-Verified on the workspace-isolation changes on 20 October 2026. Authentication screenshots were captured for the preceding authentication PR; workspace-isolation screenshots below show the new preview using a separate Neon database branch.
+The local lint, typecheck and production build commands passed on 30 October 2026, before the current improvement work.
 
-| Check | Result |
+**Known linting limitation:** The existing ESLint setup does not provide full TypeScript/TSX source coverage. Improving that configuration is a follow-up task.
+
+### PostgreSQL Integration Tests
+
+A separate PostgreSQL suite tests workspace isolation and transactional behaviour against a disposable database.
+
+Start the test database:
+
+```bash
+docker compose -f compose.test.yml up -d --wait
+```
+
+Run the tests:
+
+```bash
+CLOUDOPS_TEST_DATABASE_URL='postgresql://cloudops_test:cloudops_local_test@127.0.0.1:55433/cloudops_test' npm run test:postgres
+```
+
+Recorded validation on 20 October 2026 included **12 passing PostgreSQL integration tests**.
+
+After testing, stop the dedicated container:
+
+```bash
+docker compose -f compose.test.yml down
+```
+
+These tests are configured to use an isolated local test database, not a production database.
+
+### CI/CD Pipeline
+
+[GitHub Actions CI](.github/workflows/ci.yml) runs checks on pull requests and pushes to `main`.
+
+The workflow includes:
+
+- Locked dependency installation using `npm ci`
+- ESLint
+- TypeScript typechecking
+- Vitest application tests
+- Next.js production build
+- PostgreSQL workspace-isolation integration tests
+- Operational-finding contract validation
+- Git whitespace verification
+
+The CI workflow uses a PostgreSQL 17 service container for database integration testing.
+
+### Verification Evidence
+
+| Evidence | Reference |
 | --- | --- |
-| Automated suite | 132 tests passed across 19 files |
-| Authentication regression subset | 77 tests passed across 3 files, included in the 132 total |
-| PostgreSQL isolation and migration suite | 12 tests passed against a disposable PostgreSQL 17 database |
-| TypeScript and production build | Passed; webpack in an isolated source copy and the standard build in the working checkout |
-| Operational-finding contract validation | Passed locally |
-| Whitespace check | Passed |
-| GitHub Actions | PR #9 validate check passed, including PostgreSQL service tests |
-| Preview owner access | Authenticated owner dashboard loaded |
-| Preview signed-out API access | HTTP 401 with `Cache-Control: no-store` |
-| Preview viewer approval attempt | HTTP 403: `Role cannot approve or dismiss risks` |
-| Workspace isolation preview | Team B could not see Team A's synthetic finding; approval returned 404 and Team A's status stayed `needs_approval` |
+| Application regression tests | [Test screenshot](docs/screenshots/workspace-isolation-tests.png) |
+| PostgreSQL integration tests | [Database test screenshot](docs/screenshots/workspace-isolation-postgres.png) |
+| Authentication regression tests | [Authentication test screenshot](docs/screenshots/auth-regression-tests.png) |
+| Signed-out API rejection | [HTTP 401 screenshot](docs/screenshots/unauthenticated-api-401.png) |
+| Viewer approval rejection | [HTTP 403 screenshot](docs/screenshots/viewer-approval-denied-403.png) |
+| Cross-workspace denial | [Workspace separation screenshot](docs/screenshots/workspace-isolation-preview-denied.png) |
 
-`npm run lint` passes, but the current ESLint configuration does not cover TypeScript files. Changed authentication sources were additionally checked against Next.js lint rules in an isolated validation copy. Expanding the repository's lint configuration remains a follow-up.
+The hosted preview validation used demonstration data and a separate database branch. These checks demonstrate tested behaviours rather than broad production security certification.
 
-The automated authentication tests mock Clerk responses. Hosted checks exercise Clerk sign-in and cross-workspace denial against a separately migrated Neon preview branch. Both workspace test accounts had the owner role. This verifies the tested read and approval paths; it does not establish production readiness. The production schema cutover remains pending.
-
-### Workspace isolation evidence
-
-- [Automated tests](docs/screenshots/workspace-isolation-tests.png): 132 tests across 19 files.
-- [PostgreSQL integration tests](docs/screenshots/workspace-isolation-postgres.png): 12 tests against a disposable local database.
-- [Team B denied access](docs/screenshots/workspace-isolation-preview-denied.png): Team A's finding was absent from Team B's state, and Team B's approval attempt returned 404.
-- [Team A unchanged](docs/screenshots/workspace-isolation-preview-unchanged.png): the synthetic finding remained `needs_approval` after Team B's attempt.
-
-See the [verification details](docs/workspace-isolation.md#hosted-preview-evidence) for the test setup.
-
-### Authentication evidence
-
-The screenshots use demonstration workspace data.
-
-- [Authentication regression tests](docs/screenshots/auth-regression-tests.png): the targeted test suite and passing counts.
-- [Authenticated owner dashboard](docs/screenshots/authenticated-owner-dashboard.png): owner access after verified sign-in and workspace assignment.
-
-<details>
-<summary>Signed-out API request: 401 with no-store</summary>
-
-![Signed-out platform-state API request returns HTTP 401 and Cache-Control no-store](docs/screenshots/unauthenticated-api-401.png)
-
-The request uses `vercel curl` to pass Vercel deployment protection without supplying a Clerk session. This tests application authentication separately from access to the preview deployment.
-
-</details>
-
-<details>
-<summary>Viewer approval request: 403</summary>
-
-![Verified viewer account receives HTTP 403 when attempting to approve a risk](docs/screenshots/viewer-approval-denied-403.png)
-
-The console first confirms a viewer session, then sends an approval request for a newly generated, nonexistent risk ID. The server rejects the request before modifying a risk. The red 403 console entry is expected for this check.
-
-</details>
-
-## Authentication boundary
-
-Production browser access requires Clerk, a verified primary email, and explicit
-workspace and role assignments in backend-managed public metadata. Authentication
-failures cannot fall back to a demo owner. Local development retains demo access
-only when neither Clerk key is configured.
-
-| Operation | Minimum role |
-| --- | --- |
-| Read the workspace | viewer |
-| Import GitHub runs or Terraform plans | engineer |
-| Approve, dismiss, or simulate execution | admin |
-| Reset the demo risk scan | owner |
-
-Missing sessions return 401, invalid assignments or insufficient permissions return 403, and missing or unavailable authentication configuration returns 503. Authentication error responses use `Cache-Control: no-store`.
-
-PlatformPilot ingestion uses its own token and an explicit target workspace,
-independently from browser sessions.
-
-See [Authentication setup and screenshot evidence](docs/authentication.md) for
-deployment prerequisites, role permissions, verification commands and the
-screenshots to capture. See [Workspace isolation and schema cutover](docs/workspace-isolation.md) for storage behavior, provisioning, migration order and PostgreSQL regression tests. This remains a portfolio application rather than a production certification.
+---
 
 ## Local Development
 
-Use Node.js 22, matching the GitHub Actions configuration.
+### Requirements
+
+- Node.js 22
+- npm
+- Optional PostgreSQL or Docker for persistent-storage testing
+- Optional Clerk credentials for authenticated development
+
+### Start the Application
 
 ```bash
 git clone https://github.com/AZ1600/cloudops-command-center.git
 cd cloudops-command-center
+
 npm ci
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). With neither Clerk key configured, development uses the demo-owner identity. With no `DATABASE_URL`, data is held in memory and can reset when the process restarts. A partial Clerk configuration does not enable demo access.
+Open:
 
-### Deployment configuration
+```text
+http://localhost:3000
+```
 
-Configure values through your deployment provider or an ignored local environment file. Keep credentials out of Git.
+When neither Clerk key is configured in local development, the application uses its demo identity.
+
+When `DATABASE_URL` is absent, workspace data uses in-memory storage.
+
+A partially configured Clerk environment does not enable the local demo fallback.
+
+### Environment Configuration
+
+Use `.env.example` as a configuration reference. Store secrets in an ignored local environment file or your deployment provider.
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public Clerk key, included in the browser build; must match the secret key's instance. |
-| `CLERK_SECRET_KEY` | Server-only Clerk credential. |
-| `DATABASE_URL` | Postgres connection string; required for persistent data. |
-| `DATABASE_SSL` | Set to `false` only when connecting to an appropriate local database without TLS. |
-| `GITHUB_TOKEN` | Optional server-side GitHub API credential for authenticated workflow imports. |
-| `PLATFORM_PILOT_INGEST_TOKEN` | Server-side shared credential for PlatformPilot ingestion. |
-| `PLATFORM_PILOT_WORKSPACE_ID` | Existing workspace assigned to the integration; required outside the unconfigured local demo. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public Clerk application key |
+| `CLERK_SECRET_KEY` | Server-side Clerk authentication key |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_SSL` | Database TLS configuration |
+| `GITHUB_TOKEN` | Optional GitHub API authentication |
+| `PLATFORM_PILOT_INGEST_TOKEN` | PlatformPilot integration credential |
+| `PLATFORM_PILOT_WORKSPACE_ID` | Authorized target workspace for PlatformPilot findings |
 
-The embedded sign-in route is `/login`, with catch-all handling for verification and callback steps. Use the same Clerk instance for both keys. Configure authorized users through backend-managed public metadata, for example `workspaceId: "workspace-demo"` and `role: "owner"` for the demo workspace's owner. New workspaces are not provisioned automatically.
+Never commit private credentials, access tokens or database connection secrets.
 
-Before using this version with Postgres, follow the [schema cutover instructions](docs/workspace-isolation.md#schema-upgrade-and-deployment-order). The old application cannot write against the new primary keys. Test with a separate preview database first. Apply the schema during the coordinated cutover, after configuring `DATABASE_URL`:
+### PostgreSQL Schema Setup
+
+The current schema introduces composite workspace-scoped keys.
+
+The earlier application version cannot safely write against the upgraded schema without the corresponding application changes.
+
+Before a production migration:
+
+1. Validate the updated application against a separate preview database.
+2. Back up the existing database.
+3. Coordinate the application and schema cutover.
+4. Apply the migration using the intended environment.
+5. Verify authentication, workspace isolation and operational workflows.
+
+The schema command is:
 
 ```bash
 npm run db:apply
 ```
 
-Provision additional Postgres workspaces through the operator command before assigning users to them:
+**Do not run this command against an existing production database without reviewing the migration and backup plan.**
+
+See [schema upgrade and deployment order](docs/workspace-isolation.md#schema-upgrade-and-deployment-order).
+
+Additional workspaces can be provisioned using the operator-controlled command:
 
 ```bash
 npm run workspace:create -- workspace-team-a 'Team A' team
 ```
 
-Only `workspace-demo` is seeded with demonstration findings and can be reset by its owner. Other Postgres workspaces start empty; unknown workspace IDs return 403. In-memory non-demo assignments use separate empty, ephemeral states.
+New authenticated users are not automatically provisioned into workspaces.
 
-For local PostgreSQL isolation tests:
+---
 
-```bash
-docker compose -f compose.test.yml up -d --wait
-CLOUDOPS_TEST_DATABASE_URL='postgresql://cloudops_test:cloudops_local_test@127.0.0.1:55433/cloudops_test' npm run test:postgres
-```
+## Project Screenshots
 
-Vercel environment changes apply to new deployments. Redeploy the intended Preview or Production environment after changing keys. Protected preview links may additionally require Vercel access or a generated shareable link; this is separate from Clerk authentication inside CloudOps.
+### Authenticated Investigation Dashboard
 
-See [.env.example](.env.example) and [the authentication guide](docs/authentication.md) for setup and role-verification instructions.
+The dashboard presents infrastructure risks, ownership information, decision evidence and approval controls.
 
-## Implemented Capabilities and Demo Boundaries
+![Authenticated dashboard](docs/screenshots/authenticated-owner-dashboard.png)
 
-| Area | Current behavior |
-| --- | --- |
-| GitHub Actions | Imports recent workflow runs through the GitHub API and maps failures into reviewable risks. |
-| Terraform | Parses supplied plan JSON; does not run Terraform against a cloud account. |
-| PlatformPilot | Accepts contract-validated findings through a separately authenticated endpoint. |
-| AWS, Kubernetes, and monitoring examples | Seeded demonstration signals; connector labels do not establish live collection. |
-| Decision Traces | Deterministic evidence-based templates, without an LLM dependency. |
-| Execution | Records simulated remediation and evidence; does not apply cloud changes, dispatch workflows, or open remediation PRs. |
-| Workspace access | Explicit authenticated workspace assignments and roles, per-workspace memory stores, and composite Postgres record keys. Database operations lock the workspace row and commit status/evidence changes together. |
+### Project Architecture Overview
 
-## Next Improvements
+![CloudOps project overview](docs/Project-overview.png)
 
-- Require persistent storage for deployed environments and strengthen database transport configuration.
-- Expand ESLint coverage to TypeScript and TSX sources.
-- Move the hosted demo from Clerk development keys to a configured production instance for a production launch.
-- Add real execution integrations with approval enforcement, retry handling, and auditable results.
+### Decision Trace Investigation
 
-## Additional Screenshots
+The investigation workspace separates raw observations, reasoning, verification and conclusions.
 
-### Approval and execution flow
+![Decision Trace investigation](docs/decision-trace-investigation.png)
+
+### Approval and Execution Workflow
 
 ![Approval and execution flow](docs/screenshots/approval-execution-flow.png)
 
-Shows how an approved risk enters the execution gate and becomes part of the audit trail.
-
-### Owner routing
+### Service Ownership
 
 ![Owner routing](docs/screenshots/owner-routing.png)
 
-Summarizes urgent, waiting, approved, and completed work for each service owner.
-
-### Service catalog
+### Service Catalog
 
 ![Service catalog](docs/screenshots/service-catalog.png)
 
-Connects services with owners, environments, runtimes, integrations, health, and active risks.
+### Integration Status
 
-### Integration status
+Integration status distinguishes supported connections from demonstration or unconfigured sources.
 
 ![Integration status](docs/screenshots/integrations-status.png)
 
-Shows which infrastructure signal sources are connected, mocked, or awaiting configuration.
-
-### Runbooks
+### Operational Runbooks
 
 ![Runbooks](docs/screenshots/runbooks.png)
 
-Documents controlled remediation procedures, safety checks, and rollback plans.
+---
 
-## Skills Demonstrated
+## Implemented Integrations and Demo Boundaries
 
-- Platform engineering: service ownership, runbooks, approvals, operational safety, and auditability
-- Cloud engineering: AWS, Kubernetes, Terraform, deployment, reliability, security, and cost risk modeling
-- DevOps: GitHub Actions, contract validation, testing, production builds, and deployment readiness
-- Product engineering: workflow-driven UX, explainable decision artifacts, responsive design, and portfolio documentation
+Not every displayed infrastructure source represents a live integration.
+
+| Source or Capability | Current Implementation |
+| --- | --- |
+| GitHub Actions | Can import workflow-run data through the GitHub API |
+| Terraform | Analyzes supplied plan JSON; does not execute Terraform |
+| PlatformPilot | Accepts authenticated, contract-validated findings |
+| AWS example signals | Demonstration data |
+| Kubernetes example signals | Demonstration data |
+| Monitoring example signals | Demonstration data |
+| Decision Traces | Deterministic templates, not LLM-generated decisions |
+| Remediation | Simulated execution and audit records |
+
+Displayed confidence, risk and savings figures should not be interpreted as independently measured customer outcomes.
+
+---
+
+## Scope and Limitations
+
+CloudOps Command Center demonstrates practical engineering patterns, but some capabilities intentionally remain within portfolio and development scope.
+
+- **Execution:** Remediation is simulated. The application does not directly modify production cloud resources.
+- **Persistence:** In-memory mode is temporary. PostgreSQL is available, but production schema cutover requires coordinated deployment.
+- **Authentication:** Hosted access currently uses a Clerk development instance; further production identity hardening is required.
+- **Workspace isolation:** Application-enforced isolation has been tested, but PostgreSQL row-level security is not used.
+- **Integrations:** GitHub Actions and PlatformPilot have implemented integration paths. Other infrastructure signals may be seeded examples.
+- **Observability:** Structured application telemetry is implemented, but a complete production monitoring and incident-response operation is not established.
+- **Testing:** The current lint configuration does not fully cover TypeScript sources.
+- **Commercial outcomes:** The project does not claim production customer adoption or measured financial savings.
+
+## Future Engineering Improvements
+
+Potential next steps include:
+
+1. Expand ESLint coverage across TypeScript and React source files.
+2. Strengthen production persistence and database transport configuration.
+3. Improve deployment and schema-migration protections.
+4. Add additional operational regression tests and failure scenarios.
+5. Introduce production-grade execution integrations behind explicit authorization, idempotency and rollback controls.
+6. Expand observability and operational readiness evidence.
+
+These are possible future improvements, not claims of features already deployed.
+
+---
+
+## Repository Structure
+
+```text
+app/                  Next.js pages, components and API routes
+lib/                  Authentication, risk engine, decision traces,
+                      repository, integrations and telemetry
+data/                 Demonstration signals, service catalog and runbooks
+db/                   PostgreSQL persistence and schema support
+contracts/            PlatformPilot operational finding schema
+tests/                Automated unit and integration tests
+docs/                 Architecture, operational evidence and guides
+scripts/              Validation and workspace administration
+.github/workflows/     GitHub Actions CI and demonstration workflow
+```
+
+## Engineering Skills Demonstrated
+
+**Cloud and Platform Engineering**
+- Infrastructure signal interpretation
+- Service ownership and risk assessment
+- Operational runbooks and auditability
+- Approval-driven operational workflows
+
+**Backend and Full-Stack Engineering**
+- Next.js and TypeScript
+- API validation and error handling
+- PostgreSQL transactions and workspace isolation
+- Server-side authentication and authorization
+
+**DevOps and Security**
+- GitHub Actions CI
+- Automated regression testing
+- Contract-driven integrations
+- Role-based access boundaries
+- Deployment configuration and operational evidence
+
+**Engineering Governance**
+- Deterministic decision artifacts
+- Evidence-based investigation
+- Human approval and execution separation
+- Explicit operational limitations
+
+---
 
 ## Author
 
-Olawale Azeez
-AWS Certified Developer Associate
-AWS Certified Solutions Architect -Associate
+**Olawale Azeez**
+
+AWS Certified Developer – Associate
+AWS Certified Solutions Architect – Associate
 AWS Certified Cloud Practitioner
+
 Cloud Engineer | Platform Engineer | DevOps Engineer
+
+[GitHub](https://github.com/AZ1600) · [Portfolio](https://az1600.github.io/)
