@@ -43,7 +43,7 @@ A quick guide for engineers and reviewers who want to examine the implementation
 | PostgreSQL integration tests | 12 passing tests in the recorded 20 October validation |
 | Next.js production build | Passed locally on 30 October 2026 |
 | TypeScript validation | Passed locally on 30 October 2026 |
-| ESLint command | Passed locally; TypeScript source coverage remains a documented gap |
+| ESLint command | Passed locally; Next.js and TypeScript ESLint rules enabled |
 | Operational-finding contract | Dedicated schema validation and automated tests |
 | Workspace isolation | Recorded local PostgreSQL and hosted preview verification |
 
@@ -460,7 +460,7 @@ git diff --check
 
 The local lint, typecheck and production build commands passed on 30 October 2026, before the current improvement work.
 
-**Known linting limitation:** The existing ESLint setup does not provide full TypeScript/TSX source coverage. Improving that configuration is a follow-up task.
+ESLint now applies Next.js Core Web Vitals and TypeScript rules to application source files.
 
 ### PostgreSQL Integration Tests
 
@@ -672,14 +672,14 @@ CloudOps Command Center demonstrates practical engineering patterns, but some ca
 - **Workspace isolation:** Application-enforced isolation has been tested, but PostgreSQL row-level security is not used.
 - **Integrations:** GitHub Actions and PlatformPilot have implemented integration paths. Other infrastructure signals may be seeded examples.
 - **Observability:** Structured application telemetry is implemented, but a complete production monitoring and incident-response operation is not established.
-- **Testing:** The current lint configuration does not fully cover TypeScript sources.
+- Automated tests and linting do not replace end-to-end production verification.
 - **Commercial outcomes:** The project does not claim production customer adoption or measured financial savings.
 
 ## Future Engineering Improvements
 
 Potential next steps include:
 
-1. Expand ESLint coverage across TypeScript and React source files.
+1. Introduce automated browser end-to-end tests for critical authenticated workflows.
 2. Strengthen production persistence and database transport configuration.
 3. Improve deployment and schema-migration protections.
 4. Add additional operational regression tests and failure scenarios.
