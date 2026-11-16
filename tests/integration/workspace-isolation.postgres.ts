@@ -68,6 +68,29 @@ describe("workspace isolation against PostgreSQL", () => {
     expect(stateB.auditEvents.some(event => event.actor === "Owner A")).toBe(false);
     expect((await admin.query("select count(*)::int as n from infrastructure_risks where id = 'same-source-id'")).rows[0].n).toBe(2);
   });
+  it("keeps concurrent approval retries to one persisted audit and blocks terminal reversal", async () => {
+    await repo.importPlatformPilotRisk(a, risk());
+    await Promise.all([
+      repo.updateRisk(a, "same-source-id", "approved", "first-approval"),
+      repo.updateRisk(a, "same-source-id", "approved", "retry-approval"),
+    ]);
+    let state = await repo.getPlatformState(a);
+    expect(state.risks[0].status).toBe("approved");
+    expect(state.auditEvents.filter(event => event.riskId === "same-source-id" && event.action === "approved")).toHaveLength(1);
+    const auditRows = await admin.query(
+      "select count(*)::int as n from audit_events where workspace_id = $1 and risk_id = $2 and action = 'approved'",
+      [a.workspaceId, "same-source-id"],
+    );
+    expect(auditRows.rows[0].n).toBe(1);
+
+    await repo.updateRisk(a, "same-source-id", "executed", "first-execution");
+    await expect(repo.updateRisk(a, "same-source-id", "approved", "stale-reapproval"))
+      .rejects.toMatchObject({ status: 409 });
+    state = await repo.getPlatformState(a);
+    expect(state.risks[0].status).toBe("executed");
+    expect(state.executionEvents).toHaveLength(1);
+    expect(state.auditEvents.filter(event => event.riskId === "same-source-id" && event.action === "approved")).toHaveLength(1);
+  });
   it("cannot change a risk that only belongs to another workspace", async () => {
     await repo.importPlatformPilotRisk(a, risk());
     expect((await repo.updateRisk(b, "same-source-id", "dismissed")).risks).toEqual([]);
