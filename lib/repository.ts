@@ -146,6 +146,13 @@ export async function updateRisk(
     if (!canApprove(member.role) || (status === "executed" && !canExecute(member.role))) {
       throw new WorkspaceAccessError(403, "Role cannot change risk status.");
     }
+    // Retries of the same decision must not create additional audit events.
+    // Keep execution retries blocked: execution requires an approved risk.
+    if ((status === "approved" || status === "dismissed") && risk.status === status) return state;
+    // A terminal decision must not be reopened by a stale approval request.
+    if (risk.status === "executed" || risk.status === "dismissed") {
+      throw new WorkspaceAccessError(409, "Completed or dismissed risks cannot be changed.");
+    }
     if (status === "executed" && risk.status !== "approved") {
       throw new WorkspaceAccessError(403, "Risk must be approved before execution.");
     }

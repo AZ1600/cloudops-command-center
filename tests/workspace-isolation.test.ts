@@ -34,6 +34,37 @@ describe("workspace isolation in memory", () => {
     expect(stateA.risks[0].status).toBe("executed");
     expect(stateA.executionEvents[0]).toMatchObject({ requestedBy: "Owner A", approvedBy: "Owner A", approvalRequestId: "a-approval" });
   });
+  it("keeps repeated approvals audit-safe and blocks reopening a completed simulation", async () => {
+    await repo.importPlatformPilotRisk(a, risk());
+    await repo.updateRisk(a, "same-source-id", "approved", "approval-original");
+    await Promise.all([
+      repo.updateRisk(a, "same-source-id", "approved", "approval-retry-1"),
+      repo.updateRisk(a, "same-source-id", "approved", "approval-retry-2"),
+    ]);
+    const approved = await repo.getPlatformState(a);
+    expect(approved.risks[0].status).toBe("approved");
+    expect(approved.auditEvents.filter(e => e.riskId === "same-source-id" && e.action === "approved")).toHaveLength(1);
+    expect(approved.executionEvents).toEqual([]);
+
+    await repo.updateRisk(a, "same-source-id", "executed", "execution-original");
+    await expect(repo.updateRisk(a, "same-source-id", "approved", "stale-approval"))
+      .rejects.toMatchObject({ status: 409 });
+    const completed = await repo.getPlatformState(a);
+    expect(completed.risks[0].status).toBe("executed");
+    expect(completed.executionEvents).toHaveLength(1);
+    expect(completed.auditEvents.filter(e => e.riskId === "same-source-id" && e.action === "approved")).toHaveLength(1);
+  });
+  it("deduplicates dismissal retries and blocks reapproval of a dismissed risk", async () => {
+    await repo.importPlatformPilotRisk(b, risk("B finding", "dismiss-me"));
+    await repo.updateRisk(b, "dismiss-me", "dismissed", "dismiss-original");
+    await repo.updateRisk(b, "dismiss-me", "dismissed", "dismiss-retry");
+    await expect(repo.updateRisk(b, "dismiss-me", "approved", "reapprove"))
+      .rejects.toMatchObject({ status: 409 });
+    const state = await repo.getPlatformState(b);
+    expect(state.risks[0].status).toBe("dismissed");
+    expect(state.auditEvents.filter(e => e.riskId === "dismiss-me" && e.action === "dismissed")).toHaveLength(1);
+    expect(state.executionEvents).toEqual([]);
+  });
   it("cannot update a risk belonging only to another workspace", async () => {
     await repo.importPlatformPilotRisk(a, risk());
     expect((await repo.updateRisk(b, "same-source-id", "dismissed")).risks).toEqual([]);

@@ -270,6 +270,8 @@ Important controls include:
 - Permission checks before protected operations
 - An approval requirement before simulated execution
 - Server-side enforcement
+- Idempotent approval and dismissal retries: the same decision does not create a second audit event
+- Terminal statuses cannot be reopened through a stale status-change request
 - Execution evidence and audit history
 - Explicit separation between recommendations and actions
 
